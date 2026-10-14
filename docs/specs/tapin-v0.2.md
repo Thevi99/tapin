@@ -21,7 +21,7 @@ Make a busy inbox (10+ sessions) easy to search and scan, show how full each age
 
 ### 2. `g`: group by folder
 - `g` toggles grouping. Rows are grouped by cwd. Each group gets a header line `▸ <folder name>  (<n>)`.
-- Groups are ordered by their most urgent row (same order as rows today), then by folder name.
+- Groups are ordered by their most urgent row (same order as rows today; the daemon's order breaks ties). Headers show the folder's last part, or its last two when two groups would look the same.
 - Within a group, rows keep today's order.
 - Headers are not selectable: `j`/`k`/Tab skip them.
 - Grouping is remembered for the TUI session only (no config).

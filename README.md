@@ -74,6 +74,7 @@ Run `tapin doctor` to see what's set up. It also tells you why approvals might n
 | `Enter` | jump to the agent's pane or window |
 | `Tab` | next agent waiting on you (a request or a finished turn) |
 | `/` | filter by project, agent, detail or folder (`Esc` clears) |
+| `g` | group rows by folder |
 | `y` / `n` | approve / deny the selected request |
 | `d` | details: full input, last message, cwd, where it runs |
 | `?` | help |

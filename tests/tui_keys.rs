@@ -319,3 +319,112 @@ fn the_bell_rings_once_per_new_request_even_when_the_filter_hides_it() {
     ];
     assert!(app.rings_for(&more));
 }
+
+fn in_dir(id: &str, state: State, cwd: &str) -> Row {
+    Row {
+        cwd: cwd.into(),
+        ..with_state(id, state)
+    }
+}
+
+trait WithRequest {
+    fn with_request(self, id: u64) -> Row;
+}
+
+impl WithRequest for Row {
+    fn with_request(self, id: u64) -> Row {
+        Row {
+            request_id: Some(id),
+            request_input: Some("touch x".into()),
+            ..self
+        }
+    }
+}
+
+fn ids(app: &App) -> Vec<String> {
+    app.visible().iter().map(|r| r.session_id.clone()).collect()
+}
+
+#[test]
+fn g_groups_rows_by_folder_with_the_most_urgent_group_first() {
+    let mut app = settled(vec![
+        in_dir("a", State::Done, "/w/api"),
+        in_dir("b", State::Working, "/w/web"),
+        in_dir("c", State::Idle, "/w/api"),
+    ]);
+    app.key('g', WIDE, Instant::now());
+    assert!(app.grouped());
+    assert_eq!(ids(&app), ["a", "c", "b"]);
+    // Snapshots keep the grouping, and j walks rows in grouped order.
+    app.update(
+        vec![
+            in_dir("a", State::Done, "/w/api"),
+            in_dir("b", State::Working, "/w/web"),
+            in_dir("c", State::Idle, "/w/api"),
+        ],
+        Instant::now(),
+    );
+    app.key('j', WIDE, Instant::now());
+    assert_eq!(
+        jump_target(app.key('\n', WIDE, Instant::now())),
+        Some("c".into())
+    );
+    app.key('g', WIDE, Instant::now());
+    assert_eq!(ids(&app), ["a", "b", "c"]);
+}
+
+#[test]
+fn grouped_the_cursor_still_goes_to_the_oldest_new_request() {
+    let older = |id: &str, cwd: &str, req: u64, age: u64| {
+        Row {
+            age_secs: age,
+            ..in_dir(id, State::NeedsPermission, cwd)
+        }
+        .with_request(req)
+    };
+    // Urgency order: n1 (seen) /api, n2 (new, older) /web, n3 (new) /api.
+    let mut app = settled(vec![
+        older("n1", "/w/api", 1, 50),
+        in_dir("x", State::Idle, "/w/x"),
+    ]);
+    app.key('g', WIDE, Instant::now());
+    app.key('j', WIDE, Instant::now()); // off the request
+    app.key('j', WIDE, Instant::now());
+    app.update(
+        vec![
+            older("n1", "/w/api", 1, 50),
+            older("n2", "/w/web", 2, 40),
+            older("n3", "/w/api", 3, 30),
+            in_dir("x", State::Idle, "/w/x"),
+        ],
+        Instant::now(),
+    );
+    assert_eq!(
+        jump_target(app.key('\n', WIDE, Instant::now())),
+        Some("n2".into())
+    );
+}
+
+#[test]
+fn grouping_reorders_the_filtered_rows() {
+    let tagged = |id: &str, cwd: &str| Row {
+        detail: "deploy".into(),
+        ..in_dir(id, State::Done, cwd)
+    };
+    let mut app = settled(vec![
+        tagged("a", "/w/api"),
+        tagged("b", "/w/web"),
+        in_dir("z", State::Done, "/w/zzz"),
+        tagged("c", "/w/api"),
+    ]);
+    app.key('g', WIDE, Instant::now());
+    typed(&mut app, "/deploy\n");
+    assert_eq!(ids(&app), ["a", "c", "b"]);
+}
+
+#[test]
+fn g_keeps_the_same_request_under_the_cursor_so_y_still_answers_it() {
+    let mut app = settled(vec![needs("a", 7), in_dir("b", State::Done, "/w/b")]);
+    app.key('g', WIDE, Instant::now());
+    assert_eq!(app.key('y', WIDE, Instant::now()), Action::Decide(7, true));
+}

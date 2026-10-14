@@ -306,3 +306,45 @@ fn rows_show_context_as_a_percent_only_when_the_window_is_known() {
     assert!(lines[2].contains("ctx 132k"), "{text}");
     assert!(!lines[3].contains("ctx"), "{text}");
 }
+
+#[test]
+fn grouped_rows_get_a_folder_header_and_the_cursor_stays_on_its_row() {
+    let row = |id: &str, cwd: &str, state| Row {
+        session_id: id.into(),
+        project: id.into(),
+        cwd: cwd.into(),
+        state,
+        ..Default::default()
+    };
+    let rows = [
+        row("one", "/w/api", State::Done),
+        row("two", "/w/api", State::Idle),
+        row("three", "/w/web", State::Idle),
+    ];
+    let mut t = Terminal::new(TestBackend::new(70, 8)).unwrap();
+    let view = View {
+        rows: &rows,
+        selected: Some(1),
+        connected: true,
+        grouped: true,
+        ..Default::default()
+    };
+    t.draw(|f| tapin::tui::draw(f, &view)).unwrap();
+    let buf = t.backend().buffer().clone();
+    let lines: Vec<String> = (0..8)
+        .map(|y| (0..70).map(|x| buf[(x, y)].symbol().to_string()).collect())
+        .collect();
+    assert!(
+        lines[1].contains("api") && lines[1].contains("(2)"),
+        "{lines:#?}"
+    );
+    assert!(
+        lines[3].starts_with("▶") && lines[3].contains("two"),
+        "{lines:#?}"
+    );
+    assert!(
+        lines[4].contains("web") && lines[4].contains("(1)"),
+        "{lines:#?}"
+    );
+    assert!(lines[5].contains("three"), "{lines:#?}");
+}

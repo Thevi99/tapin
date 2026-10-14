@@ -85,6 +85,8 @@ pub struct App {
     /// The `/` filter, if any, and whether the user is still typing it.
     filter: Option<String>,
     typing: bool,
+    /// `g`: rows from the same folder sit together.
+    grouped: bool,
     /// The session the user chose (kept across re-sorts and while it vanishes).
     selected: Option<String>,
     index: Option<usize>,
@@ -126,6 +128,11 @@ impl App {
         new_requests(&self.all, rows) > 0
     }
 
+    /// True when rows are grouped by folder (`g`).
+    pub fn grouped(&self) -> bool {
+        self.grouped
+    }
+
     /// True while the user is typing the `/` filter.
     pub fn typing(&self) -> bool {
         self.typing
@@ -144,6 +151,9 @@ impl App {
             .filter(|r| query.is_empty() || matches_filter(r, &query))
             .cloned()
             .collect();
+        if self.grouped {
+            self.rows = group_by_folder(std::mem::take(&mut self.rows));
+        }
         self.reindex(now);
     }
 
@@ -231,6 +241,11 @@ impl App {
         }
         match key {
             'q' => Action::Quit,
+            'g' => {
+                self.grouped = !self.grouped;
+                self.refilter(now);
+                Action::None
+            }
             '/' => {
                 self.typing = true;
                 self.filter.get_or_insert_with(String::new);
@@ -298,6 +313,7 @@ impl App {
             status,
             filter: self.filter.as_deref(),
             typing: self.typing,
+            grouped: self.grouped,
             hidden: self.all.len() - self.rows.len(),
             hidden_waiting: waiting(&self.all) - waiting(&self.rows),
         }
@@ -433,22 +449,26 @@ pub fn reselect(rows: &[Row], selected: Option<&str>, known_needs: &[Need]) -> O
             return Some(i);
         }
     }
-    // Rows are sorted most urgent first, so the first request is the oldest one.
+    // The oldest request by its own age: grouping can reorder rows.
     let needs = |r: &Row| r.state == State::NeedsPermission;
-    if let Some(i) = rows
-        .iter()
-        .position(|r| needs(r) && !known_needs.contains(&need(r)))
-    {
+    if let Some(i) = oldest(rows, |r| needs(r) && !known_needs.contains(&need(r))) {
         return Some(i);
     }
     match (selected, current) {
         (_, Some(i)) => Some(i),
-        (Some(_), None) => rows.iter().position(needs),
-        (None, None) => rows
-            .iter()
-            .position(needs)
-            .or((!rows.is_empty()).then_some(0)),
+        (Some(_), None) => oldest(rows, needs),
+        (None, None) => oldest(rows, needs).or((!rows.is_empty()).then_some(0)),
     }
+}
+
+/// The longest-waiting row matching `pred` (the first one on a tie).
+fn oldest(rows: &[Row], pred: impl Fn(&Row) -> bool) -> Option<usize> {
+    rows.iter()
+        .enumerate()
+        .filter(|(_, r)| pred(r))
+        .rev()
+        .max_by_key(|(_, r)| r.age_secs)
+        .map(|(i, _)| i)
 }
 
 /// A permission wait as the cursor rule sees it: the session and its request
@@ -457,6 +477,52 @@ pub type Need = (String, Option<u64>);
 
 fn need(r: &Row) -> Need {
     (r.session_id.clone(), r.request_id)
+}
+
+/// The last part of a folder path, for a group header.
+fn folder_name(cwd: &str) -> &str {
+    match cwd.trim_end_matches('/').rsplit('/').next() {
+        Some(name) if !name.is_empty() => name,
+        _ if cwd.is_empty() => "(unknown folder)",
+        _ => "/",
+    }
+}
+
+/// Rows from one folder together, groups in order of their most urgent row
+/// (rows arrive most urgent first), each group keeping that order.
+fn group_by_folder(rows: Vec<Row>) -> Vec<Row> {
+    let mut order: Vec<String> = Vec::new();
+    for r in &rows {
+        let key = group_key(&r.cwd);
+        if !order.iter().any(|k| k == key) {
+            order.push(key.to_string());
+        }
+    }
+    let mut grouped = rows;
+    grouped.sort_by_key(|r| order.iter().position(|k| k == group_key(&r.cwd)));
+    grouped
+}
+
+/// The folder a row is grouped under (`/w/api/` and `/w/api` are one).
+fn group_key(cwd: &str) -> &str {
+    match cwd.trim_end_matches('/') {
+        "" if cwd.starts_with('/') => "/",
+        key => key,
+    }
+}
+
+/// A group header's name: the folder's last part, or its last two when
+/// another group shown has the same last part (`/a/api` vs `/b/api`).
+fn folder_label(rows: &[Row], key: &str) -> String {
+    let name = folder_name(key);
+    let clash = rows.iter().any(|r| {
+        let other = group_key(&r.cwd);
+        other != key && folder_name(other) == name
+    });
+    match key.rsplit('/').nth(1).filter(|p| clash && !p.is_empty()) {
+        Some(parent) => format!("{parent}/{name}"),
+        None => name.to_string(),
+    }
 }
 
 /// Case-insensitive substring match; `query` is already lowercase.
@@ -523,6 +589,8 @@ pub struct View<'a> {
     /// The `/` filter, and whether it's still being typed.
     pub filter: Option<&'a str>,
     pub typing: bool,
+    /// Rows are grouped by folder: draw a header before each group.
+    pub grouped: bool,
     /// Rows the filter hides, and how many of those wait on the user.
     pub hidden: usize,
     pub hidden_waiting: usize,
@@ -575,12 +643,31 @@ pub fn draw(f: &mut Frame, view: &View) {
             body,
         );
     } else {
-        let items: Vec<ListItem> = rows
-            .iter()
-            .enumerate()
-            .map(|(i, r)| row_item(r, Some(i) == view.selected, body.width))
-            .collect();
-        let mut state = ListState::default().with_selected(view.selected);
+        let mut items: Vec<ListItem> = Vec::new();
+        // Headers are drawn only: the selection maps rows to list positions.
+        let mut selected_item = None;
+        for (i, r) in rows.iter().enumerate() {
+            let key = group_key(&r.cwd);
+            let new_group = i == 0 || group_key(&rows[i - 1].cwd) != key;
+            if view.grouped && new_group {
+                let n = rows[i..]
+                    .iter()
+                    .take_while(|o| group_key(&o.cwd) == key)
+                    .count();
+                items.push(ListItem::new(Line::from(vec![
+                    Span::styled(
+                        format!("▸ {}", folder_label(rows, key)),
+                        Style::new().bold(),
+                    ),
+                    Span::styled(format!("  ({n})"), Style::new().dim()),
+                ])));
+            }
+            if Some(i) == view.selected {
+                selected_item = Some(items.len());
+            }
+            items.push(row_item(r, Some(i) == view.selected, body.width));
+        }
+        let mut state = ListState::default().with_selected(selected_item);
         f.render_stateful_widget(
             List::new(items)
                 .highlight_symbol("▶ ")
@@ -643,6 +730,7 @@ fn help_lines() -> Vec<Line<'static>> {
         ("n", "deny it"),
         ("d", "details: full message, input, where it runs"),
         ("/", "filter by project, agent, detail or folder"),
+        ("g", "group rows by folder (again to ungroup)"),
         ("j/k ↑/↓", "move"),
         ("?", "this help"),
         ("Esc", "close this view, or clear the filter"),
