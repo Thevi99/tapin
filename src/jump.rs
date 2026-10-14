@@ -40,7 +40,22 @@ pub enum Jump {
     Explain(String),
 }
 
-/// Open a new iTerm2 window running `claude attach <argv 1>`. The id is
+/// What to tell the user when a jump command failed.
+pub fn failure_message(stderr: &str) -> String {
+    let err = stderr.trim();
+    // macOS refuses Apple events until the user allows them (errAEEventNotPermitted).
+    if err.contains("-1743") {
+        return "macOS blocked tapin from controlling the terminal: allow it in System \
+                Settings > Privacy & Security > Automation, then press Enter again."
+            .into();
+    }
+    // osascript prefixes errors with "<from>:<to>: execution error: ".
+    let err = err.split("execution error: ").last().unwrap_or(err);
+    format!("Couldn't jump: {err}")
+}
+
+/// Open a new iTerm2 window running `claude attach <argv 1>`. No folder is
+/// passed: `claude attach` opens the session wherever it runs. The id is
 /// checked to be plain (letters, digits, -, _) before it gets here.
 const ITERM_ATTACH_SCRIPT: &str = r#"on run argv
   tell application "iTerm"
@@ -239,8 +254,7 @@ pub fn jump(row: &Row) -> String {
                 match Command::new(&c[0]).args(&c[1..]).output() {
                     Ok(o) if o.status.success() => {}
                     Ok(o) => {
-                        let err = String::from_utf8_lossy(&o.stderr);
-                        return format!("Couldn't jump: {}", err.trim());
+                        return failure_message(&String::from_utf8_lossy(&o.stderr));
                     }
                     Err(e) => return format!("Couldn't run {}: {e}", c[0]),
                 }

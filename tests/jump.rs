@@ -277,3 +277,39 @@ fn another_terminal_outside_tmux_is_told_the_command() {
     ));
     assert!(msg.contains("claude attach deec2c5d"), "{msg}");
 }
+
+#[test]
+fn macos_attach_windows_use_the_exact_argv_and_refuse_odd_ids() {
+    for program in ["iTerm.app", "Apple_Terminal"] {
+        let cmds = run(jump_plan(
+            &background("bg-1_a"),
+            "/w",
+            &mac_terminal(program),
+            None,
+        ));
+        assert_eq!(cmds[0].len(), 4, "{program}: {cmds:?}");
+        assert_eq!(&cmds[0][..2], ["osascript", "-e"]);
+        assert!(cmds[0][2].contains("claude attach"), "{program}");
+        for id in ["-x", "a b", "a;rm", "", "a\"b"] {
+            let j = jump_plan(&background(id), "/w", &mac_terminal(program), None);
+            assert!(matches!(j, Jump::Explain(_)), "{program} {id:?}: {j:?}");
+        }
+    }
+    // Not on macOS: no osascript, whatever TERM_PROGRAM says.
+    let linux = Here {
+        macos: false,
+        ..mac_terminal("iTerm.app")
+    };
+    assert!(matches!(
+        jump_plan(&background("bg01"), "/w", &linux, None),
+        Jump::Explain(_)
+    ));
+}
+
+#[test]
+fn a_denied_automation_permission_says_where_to_allow_it() {
+    let msg = tapin::jump::failure_message(
+        "0:123: execution error: Not authorized to send Apple events to iTerm. (-1743)",
+    );
+    assert!(msg.contains("Automation"), "{msg}");
+}
