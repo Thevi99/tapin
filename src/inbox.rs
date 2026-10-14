@@ -52,6 +52,8 @@ struct Session {
     /// Where the agent writes its transcript, and how full its context is.
     transcript: Option<PathBuf>,
     context: Option<crate::context::Context>,
+    /// Option labels of the question awaiting an answer, if any.
+    choices: Option<Vec<String>>,
 }
 
 /// One inbox line, ready to render.
@@ -74,6 +76,9 @@ pub struct Row {
     pub model: Option<String>,
     /// Only seen from outside (no hooks): it can't be answered from tapin.
     pub passive: bool,
+    /// A question tapin can answer with a number: its option labels.
+    #[serde(default)]
+    pub choices: Option<Vec<String>>,
     /// How full the agent's context window is, when its transcript says.
     #[serde(default)]
     pub context: Option<crate::context::Context>,
@@ -136,6 +141,10 @@ impl Inbox {
         let input = match &ev.kind {
             EventKind::PermissionRequested { input, .. } => input.clone(),
             _ => String::new(),
+        };
+        let choices = match &ev.kind {
+            EventKind::PermissionRequested { choices, .. } => choices.clone(),
+            _ => None,
         };
         let mut last_message = None;
         let model = ev.model.clone();
@@ -206,6 +215,7 @@ impl Inbox {
                     label: None,
                     transcript: None,
                     context: None,
+                    choices: None,
                 });
                 self.sessions.last_mut().unwrap()
             }
@@ -217,6 +227,7 @@ impl Inbox {
         session.detail = detail;
         session.request = None;
         session.request_input = input;
+        session.choices = choices;
         if let Some(m) = last_message {
             session.last_message = m;
         }
@@ -326,6 +337,7 @@ impl Inbox {
                     label: o.label.clone(),
                     transcript: o.transcript.clone(),
                     context: None,
+                    choices: None,
                 }),
             }
         }
@@ -434,6 +446,9 @@ impl Inbox {
                 model: s.model.clone(),
                 passive: !s.hooked,
                 context: s.context,
+                choices: (s.state == State::NeedsPermission)
+                    .then(|| s.choices.clone())
+                    .flatten(),
             })
             .collect()
     }

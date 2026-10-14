@@ -89,6 +89,8 @@ pub struct App {
     grouped: bool,
     /// The daemon won't take answers from this inbox (#12).
     read_only: bool,
+    /// The daemon's protocol (from Access); questions need 3.
+    protocol: u32,
     /// `x` pressed on a background session: (attach id, name, when), awaiting `y`.
     confirm_stop: Option<(String, String, Instant)>,
     /// The session the user chose (kept across re-sorts and while it vanishes).
@@ -109,6 +111,8 @@ pub enum Action {
     None,
     Quit,
     Decide(u64, bool),
+    /// Answer the question request with this option label.
+    Answer(u64, String),
     Jump(Box<Row>),
     /// Stop this Claude background session (`claude stop <id>`).
     Stop(String),
@@ -147,6 +151,11 @@ impl App {
     /// The daemon said this inbox may not answer requests.
     pub fn set_read_only(&mut self, read_only: bool) {
         self.read_only = read_only;
+    }
+
+    /// The daemon's protocol, as its Access message said.
+    pub fn set_protocol(&mut self, protocol: u32) {
+        self.protocol = protocol;
     }
 
     /// The session `x` asked to stop, while waiting for `y`.
@@ -337,6 +346,27 @@ impl App {
                 Action::None
             }
             'y' | 'n' if self.read_only => Action::None,
+            // A question is answered with a number, never a bare `y`.
+            'y' if row.as_ref().is_some_and(is_question) => Action::None,
+            c @ '1'..='9' => {
+                let Some(row) = row else { return Action::None };
+                let settled = self
+                    .cursor_since
+                    .is_some_and(|since| now.duration_since(since) >= SETTLE);
+                let able = settled
+                    && !self.read_only
+                    && self.protocol >= 3
+                    && visible_input(&row, width).is_some();
+                let choice = row
+                    .choices
+                    .as_ref()
+                    .and_then(|labels| labels.get(c_index(c_digit(c))))
+                    .cloned();
+                match (row.request_id, choice) {
+                    (Some(id), Some(label)) if able => Action::Answer(id, label),
+                    _ => Action::None,
+                }
+            }
             c @ ('y' | 'n') => {
                 let Some(row) = row else { return Action::None };
                 // Never approve what the user couldn't see in full, and ignore
@@ -404,7 +434,13 @@ fn event_loop(
     loop {
         while let Ok(update) = rx.try_recv() {
             match update {
-                Some(Update::Access { can_answer }) => app.set_read_only(!can_answer),
+                Some(Update::Access {
+                    can_answer,
+                    protocol,
+                }) => {
+                    app.set_read_only(!can_answer);
+                    app.set_protocol(protocol);
+                }
                 Some(Update::Rows { rows }) => {
                     if bell && app.rings_for(&rows) {
                         use std::io::Write as _;
@@ -474,7 +510,8 @@ fn event_loop(
         match app.key(ch, width, Instant::now()) {
             Action::None => {}
             Action::Quit => return Ok(()),
-            Action::Decide(id, allow) => decide(control, id, allow),
+            Action::Decide(id, allow) => decide(control, id, allow, None),
+            Action::Answer(id, label) => decide(control, id, true, Some(label)),
             Action::Jump(row) => {
                 status = Some((
                     format!("Jumping to {} {}…", row.agent.name(), row.project),
@@ -633,14 +670,32 @@ pub fn new_requests(before: &[Row], now: &[Row]) -> usize {
 /// How long a status message (e.g. a jump result) stays in the footer.
 const STATUS_FOR: Duration = Duration::from_secs(5);
 
+/// A Claude AskUserQuestion request (answered with a number, or in Claude).
+fn is_question(r: &Row) -> bool {
+    r.detail.starts_with("AskUserQuestion")
+}
+
+fn c_digit(c: char) -> u32 {
+    c.to_digit(10).unwrap_or(0)
+}
+
+/// Key `1` is the first option.
+fn c_index(d: u32) -> usize {
+    (d as usize).wrapping_sub(1)
+}
+
 /// How long a stop prompt waits for its `y`.
 const STOP_PROMPT_FOR: Duration = Duration::from_secs(5);
 
 /// How long the row under the cursor must stay put before `y`/`n` count.
 const SETTLE: Duration = Duration::from_millis(500);
 
-fn decide(control: &mut UnixStream, request_id: u64, allow: bool) {
-    let request = Request::Decide { request_id, allow };
+fn decide(control: &mut UnixStream, request_id: u64, allow: bool, answer: Option<String>) {
+    let request = Request::Decide {
+        request_id,
+        allow,
+        answer,
+    };
     if let Ok(mut line) = serde_json::to_string(&request) {
         line.push('\n');
         let _ = control.write_all(line.as_bytes());
@@ -991,7 +1046,12 @@ fn row_item(r: &Row, selected: bool, width: u16, hooked: bool) -> ListItem<'stat
             )),
         }
         let background = r.location.claude_background.as_deref();
-        let hint: String = if r.request_id.is_some() && shown.is_some() {
+        let hint: String = if is_question(r) {
+            match (&r.choices, r.request_id.is_some() && shown.is_some()) {
+                (Some(c), true) => format!("      1-{} answer · n deny", c.len()),
+                _ => "      answer in Claude's window · n deny".into(),
+            }
+        } else if r.request_id.is_some() && shown.is_some() {
             "      y approve · n deny".into()
         } else if r.request_id.is_some() {
             "      n deny (approve in the agent, where you can see all of it)".into()

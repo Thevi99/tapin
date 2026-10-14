@@ -51,6 +51,8 @@ pub enum EventKind {
     PermissionRequested {
         summary: String,
         input: String,
+        /// Option labels when it's a question tapin can answer with a number.
+        choices: Option<Vec<String>>,
     },
     ToolFinished,
     TurnDone {

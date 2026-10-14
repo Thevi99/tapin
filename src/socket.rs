@@ -65,17 +65,25 @@ pub enum Request {
     /// Subscribe it doesn't count as an open inbox someone could answer from.
     Snapshot,
     /// Answer a session's pending permission request.
-    Decide { request_id: u64, allow: bool },
+    Decide {
+        request_id: u64,
+        allow: bool,
+        /// For a question: the chosen option's label (protocol 3).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        answer: Option<String>,
+    },
 }
 
 /// How a pending permission request was settled, as told to the waiting hook.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Decision {
     Allow,
     Deny,
     /// Settled elsewhere (e.g. in the agent's own dialog): say nothing.
     Pass,
+    /// Answer an AskUserQuestion with this option label.
+    Answer(String),
 }
 
 /// Daemon → a hook waiting on a permission request.
@@ -91,8 +99,16 @@ pub enum Reply {
     },
 }
 
-/// The protocol this build speaks. 2: answers only from verified inboxes (#12).
-pub const PROTOCOL: u32 = 2;
+/// The protocol this build speaks. 2: answers only from verified inboxes
+/// (#12). 3: `Decide` may carry an answer to a question.
+pub const PROTOCOL: u32 = 3;
+
+/// The protocol hooks require before waiting on a daemon.
+pub const MIN_HOOK_PROTOCOL: u32 = 2;
+
+fn protocol_2() -> u32 {
+    2
+}
 
 /// Daemon → subscriber.
 #[derive(Debug, Serialize, Deserialize)]
@@ -104,5 +120,8 @@ pub enum Update {
     /// Sent once after Subscribe: whether this inbox may answer requests (#12).
     Access {
         can_answer: bool,
+        /// The daemon's protocol; daemons before it sent this are 2.
+        #[serde(default = "protocol_2")]
+        protocol: u32,
     },
 }

@@ -12,9 +12,23 @@ pub fn wants_decision(raw: &Value) -> bool {
 }
 
 /// Hook stdout for a decision. `None` (no output) leaves the agent's own prompt in charge.
-pub fn decision_output(decision: Decision) -> Option<String> {
+/// The hook's stdout for a decision on `payload`'s PermissionRequest.
+pub fn decision_output(decision: Decision, payload: &Value) -> Option<String> {
     let decision = match decision {
         Decision::Allow => serde_json::json!({ "behavior": "allow" }),
+        // AskUserQuestion: the original questions plus the chosen answer.
+        // Only a label among that question's options is ever sent.
+        Decision::Answer(label) => {
+            let (q, choices) = single_question(payload)?;
+            if !choices.contains(&label) {
+                return None;
+            }
+            let questions = payload.get("tool_input")?.get("questions")?.clone();
+            serde_json::json!({
+                "behavior": "allow",
+                "updatedInput": { "questions": questions, "answers": { q: label } },
+            })
+        }
         Decision::Deny => serde_json::json!({
             "behavior": "deny",
             "message": "Denied by the user from tapin.",
@@ -39,9 +53,17 @@ pub fn parse(raw: &Value, agent: AgentKind) -> Option<AgentEvent> {
         "Stop" => EventKind::TurnDone {
             message: str_field(raw, "last_assistant_message"),
         },
-        "PermissionRequest" => EventKind::PermissionRequested {
-            summary: tool_summary(raw),
-            input: tool_input_text(raw),
+        "PermissionRequest" => match question_text(raw) {
+            Some((summary, input)) => EventKind::PermissionRequested {
+                summary,
+                input,
+                choices: single_question(raw).map(|(_, c)| c),
+            },
+            None => EventKind::PermissionRequested {
+                summary: tool_summary(raw),
+                input: tool_input_text(raw),
+                choices: None,
+            },
         },
         "PostToolUse" | "PostToolUseFailure" => EventKind::ToolFinished,
         "PreToolUse" => EventKind::ToolStarted {
@@ -64,6 +86,64 @@ pub fn parse(raw: &Value, agent: AgentKind) -> Option<AgentEvent> {
 }
 
 /// The whole tool input for review: the command verbatim, else pretty JSON.
+/// AskUserQuestion's questions, readable: `AskUserQuestion: <header>`, and
+/// each question followed by `1. label — description` lines.
+fn question_text(raw: &Value) -> Option<(String, String)> {
+    if raw.get("tool_name")?.as_str()? != "AskUserQuestion" {
+        return None;
+    }
+    let questions = raw.get("tool_input")?.get("questions")?.as_array()?;
+    let header = questions
+        .first()
+        .and_then(|q| q.get("header"))
+        .and_then(Value::as_str)
+        .unwrap_or("question");
+    let mut text = Vec::new();
+    for q in questions {
+        text.push(
+            q.get("question")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+        );
+        for (i, o) in q.get("options")?.as_array()?.iter().enumerate() {
+            let label = o.get("label").and_then(Value::as_str).unwrap_or("");
+            match o.get("description").and_then(Value::as_str) {
+                Some(d) if !d.is_empty() => text.push(format!("{}. {label} — {d}", i + 1)),
+                _ => text.push(format!("{}. {label}", i + 1)),
+            }
+        }
+    }
+    Some((
+        format!("AskUserQuestion: {}", crate::inbox::one_line(header)),
+        text.join("\n"),
+    ))
+}
+
+/// The one question tapin can answer with a number: exactly one question,
+/// single choice. Its text and option labels.
+fn single_question(raw: &Value) -> Option<(String, Vec<String>)> {
+    if raw.get("tool_name")?.as_str()? != "AskUserQuestion" {
+        return None;
+    }
+    let questions = raw.get("tool_input")?.get("questions")?.as_array()?;
+    let [q] = questions.as_slice() else {
+        return None;
+    };
+    if q.get("multiSelect").and_then(Value::as_bool) == Some(true) {
+        return None;
+    }
+    let labels: Vec<String> = q
+        .get("options")?
+        .as_array()?
+        .iter()
+        .map(|o| o.get("label").and_then(Value::as_str).map(String::from))
+        .collect::<Option<_>>()?;
+    (!labels.is_empty() && labels.len() <= 9)
+        .then(|| Some((q.get("question")?.as_str()?.to_string(), labels)))
+        .flatten()
+}
+
 fn tool_input_text(raw: &Value) -> String {
     let Some(input) = raw.get("tool_input") else {
         return String::new();
@@ -130,6 +210,7 @@ fn parse_gemini(raw: &Value, name: &str, agent: AgentKind) -> Option<AgentEvent>
             EventKind::PermissionRequested {
                 summary: crate::inbox::one_line(&str_field(raw, "message")),
                 input: str_field(raw, "message"),
+                choices: None,
             }
         }
         _ => return None,

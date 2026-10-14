@@ -161,6 +161,14 @@ impl Client {
         }
     }
 
+    /// Answers a question request with one of its option labels.
+    pub fn answer(&mut self, request_id: u64, label: &str) {
+        let msg = serde_json::json!({"type": "decide", "request_id": request_id, "allow": true, "answer": label});
+        self.writer
+            .write_all(format!("{msg}\n").as_bytes())
+            .unwrap();
+    }
+
     pub fn decide(&mut self, request_id: u64, allow: bool) {
         let msg = serde_json::json!({"type": "decide", "request_id": request_id, "allow": allow});
         self.writer

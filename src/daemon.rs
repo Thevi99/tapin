@@ -286,7 +286,10 @@ fn handle(conn: UnixStream, state: &State, notifier: &Notifier, trusted: &[crate
                 let _ = sub.set_write_timeout(Some(Duration::from_millis(200)));
                 // Checked before taking the lock: it reads the process table.
                 let can_answer = may_answer(&writer, state, trusted);
-                if let Ok(mut line) = serde_json::to_string(&Update::Access { can_answer }) {
+                if let Ok(mut line) = serde_json::to_string(&Update::Access {
+                    can_answer,
+                    protocol: socket::PROTOCOL,
+                }) {
                     line.push('\n');
                     let _ = sub.write_all(line.as_bytes());
                 }
@@ -322,7 +325,11 @@ fn handle(conn: UnixStream, state: &State, notifier: &Notifier, trusted: &[crate
                     let _ = (&writer).write_all(line.as_bytes());
                 }
             }
-            Ok(Request::Decide { request_id, allow }) => {
+            Ok(Request::Decide {
+                request_id,
+                allow,
+                answer,
+            }) => {
                 // Only an inbox that passed the peer check, checked again now
                 // (the process table may have changed since it subscribed).
                 let approved_inbox =
@@ -341,7 +348,10 @@ fn handle(conn: UnixStream, state: &State, notifier: &Notifier, trusted: &[crate
                         release_unwatched(&mut shared);
                     }
                     drop(shared);
-                    let access = Update::Access { can_answer: false };
+                    let access = Update::Access {
+                        can_answer: false,
+                        protocol: socket::PROTOCOL,
+                    };
                     if let Ok(mut line) = serde_json::to_string(&access) {
                         line.push('\n');
                         let _ = (&writer).write_all(line.as_bytes());
@@ -351,10 +361,10 @@ fn handle(conn: UnixStream, state: &State, notifier: &Notifier, trusted: &[crate
                 let mut shared = state.lock().unwrap();
                 // Answers name the exact request: a stale or second answer finds nothing.
                 if let Some(p) = shared.pending.remove(&request_id) {
-                    let decision = if allow {
-                        Decision::Allow
-                    } else {
-                        Decision::Deny
+                    let decision = match (allow, answer) {
+                        (true, Some(label)) => Decision::Answer(label),
+                        (true, None) => Decision::Allow,
+                        (false, _) => Decision::Deny,
                     };
                     if reply(p.hook, decision) {
                         shared.inbox.settle(&p.session_id, now());

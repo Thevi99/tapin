@@ -65,7 +65,7 @@ pub fn run(agent: AgentKind, socket: &Path) {
     let location = Some(Box::new(crate::location::Location::from_env(walk)));
     let Ok(mut line) = serde_json::to_string(&Request::Event {
         agent,
-        payload,
+        payload: payload.clone(),
         location,
     }) else {
         return;
@@ -85,7 +85,7 @@ pub fn run(agent: AgentKind, socket: &Path) {
     let Ok(Reply::Decision { decision }) = serde_json::from_str(&reply) else {
         return; // daemon went away
     };
-    let output = hooks::decision_output(decision);
+    let output = hooks::decision_output(decision, &payload);
     if let Some(output) = output {
         print!("{output}");
         let _ = std::io::stdout().flush();
@@ -124,7 +124,7 @@ fn speaks_current_protocol(stream: &UnixStream) -> bool {
     }
     matches!(
         serde_json::from_slice(&reply),
-        Ok(Reply::Hello { protocol }) if protocol >= crate::socket::PROTOCOL
+        Ok(Reply::Hello { protocol }) if protocol >= crate::socket::MIN_HOOK_PROTOCOL
     )
 }
 

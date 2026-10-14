@@ -446,3 +446,29 @@ fn stopping_asks_in_the_footer_and_background_rows_mention_x() {
     assert!(text.contains("Stop old-session (deec2c5d)?"), "{text}");
     assert!(text.contains("x stops it"), "{text}");
 }
+
+#[test]
+fn a_question_shows_its_options_and_how_to_answer() {
+    let row = Row {
+        session_id: "q".into(),
+        state: State::NeedsPermission,
+        agent: AgentKind::Claude,
+        project: "shop".into(),
+        detail: "AskUserQuestion: Color".into(),
+        request_id: Some(3),
+        request_input: Some("Which color do you prefer?\n1. Red — Warm\n2. Blue — Calm".into()),
+        choices: Some(vec!["Red".into(), "Blue".into()]),
+        ..Default::default()
+    };
+    let text = screen(std::slice::from_ref(&row), 90, 10);
+    assert!(text.contains("2. Blue — Calm"), "{text}");
+    assert!(text.contains("1-2 answer · n deny"), "{text}");
+    assert!(!text.contains("y approve"), "{text}");
+    // Not answerable here (several questions, multi-select): say where.
+    let other = Row {
+        choices: None,
+        ..row
+    };
+    let text = screen(&[other], 90, 10);
+    assert!(text.contains("answer in Claude's window"), "{text}");
+}

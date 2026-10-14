@@ -1,0 +1,31 @@
+{
+  "session_id": "c7412033-afff-4261-8136-11665b4681b7",
+  "transcript_path": "/home/dev/.claude/projects/-home-dev-projects-demo/session.jsonl",
+  "cwd": "/home/dev/projects/demo",
+  "prompt_id": "ab71926f-bc09-4991-92e9-333628963bd7",
+  "permission_mode": "default",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PermissionRequest",
+  "tool_name": "AskUserQuestion",
+  "tool_input": {
+    "questions": [
+      {
+        "question": "Which color do you prefer?",
+        "header": "Color",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Red",
+            "description": "Warm and bold"
+          },
+          {
+            "label": "Blue",
+            "description": "Calm and cool"
+          }
+        ]
+      }
+    ]
+  }
+}
