@@ -1,0 +1,16 @@
+{
+  "session_id": "c7412033-afff-4261-8136-11665b4681b7",
+  "transcript_path": "/home/dev/.claude/projects/-home-dev-projects-demo/session.jsonl",
+  "cwd": "/home/dev/projects/demo",
+  "prompt_id": "c9e02a74-e573-4edf-9432-49d4fad797f6",
+  "permission_mode": "default",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Read",
+  "tool_input": {
+    "file_path": "/home/dev/projects/demo/a.txt"
+  },
+  "tool_use_id": "toolu_01Pz6DzNY1HDi9z7GbYfW8ex"
+}

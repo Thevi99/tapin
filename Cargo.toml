@@ -1,0 +1,34 @@
+[package]
+name = "tapin"
+version = "0.1.0"
+edition = "2021"
+description = "An inbox for your AI coding agents. Approve, jump, done."
+license = "MIT"
+repository = "https://github.com/Thevi99/tapin"
+homepage = "https://github.com/Thevi99/tapin"
+keywords = ["claude", "codex", "agents", "tui", "cli"]
+categories = ["command-line-utilities"]
+readme = "README.md"
+rust-version = "1.85"
+# Only what builds the binary: tests and fixtures stay in the repo.
+include = ["/src/**", "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE"]
+
+[dependencies]
+anyhow = "1"
+libc = "0.2"
+clap = { version = "4", features = ["derive"] }
+crossterm = "0.28"
+ratatui = "0.29"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+similar = "2"
+toml = "0.8"
+
+[dev-dependencies]
+insta = "1"
+tempfile = "3"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"

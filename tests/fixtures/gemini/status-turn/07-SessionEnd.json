@@ -1,0 +1,8 @@
+{
+  "session_id": "g3m1n1-0000-4000-8000-000000000001",
+  "transcript_path": "/home/dev/.gemini/tmp/demo/chats/session.json",
+  "cwd": "/home/dev/projects/demo",
+  "timestamp": "2026-10-14T03:30:00.000Z",
+  "hook_event_name": "SessionEnd",
+  "reason": "exit"
+}

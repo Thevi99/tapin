@@ -1,0 +1,11 @@
+{
+  "session_id": "01a136b9-5803-7591-ae24-7de2eac7e10c",
+  "turn_id": "01a136b9-733c-7162-8c03-e8b5b0a097d8",
+  "transcript_path": "/home/dev/.codex/sessions/2026/10/14/rollout-2026-10-14T02-24-38-demo.jsonl",
+  "cwd": "/home/dev/projects/demo",
+  "hook_event_name": "Stop",
+  "model": "gpt-6.1-sol",
+  "permission_mode": "default",
+  "stop_hook_active": false,
+  "last_assistant_message": "Ran `touch codex-ok.txt` successfully."
+}

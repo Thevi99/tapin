@@ -1,0 +1,38 @@
+{
+  "model": "opus",
+  "permissions": {
+    "allow": [
+      "Read",
+      "Bash(git status)"
+    ],
+    "defaultMode": "default"
+  },
+  "hooks": {
+    "PermissionRequest": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "other-notifier --source claude",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.local/bin/say-done"
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "~/.local/bin/statusline"
+  }
+}

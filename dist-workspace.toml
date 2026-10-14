@@ -1,0 +1,16 @@
+[workspace]
+members = ["cargo:."]
+
+# Config for 'dist' (cargo-dist), which builds and publishes releases on tag.
+[dist]
+cargo-dist-version = "0.33.0"
+ci = "github"
+# Static musl builds on Linux so the binary runs on any distro.
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "aarch64-unknown-linux-musl", "x86_64-unknown-linux-musl"]
+installers = ["shell", "homebrew"]
+tap = "Thevi99/homebrew-tap"
+formula = "tapin"
+# crates.io has no built-in dist publisher: see .github/workflows/publish-crates.yml
+publish-jobs = ["homebrew", "./publish-crates"]
+install-path = "CARGO_HOME"
+install-updater = false

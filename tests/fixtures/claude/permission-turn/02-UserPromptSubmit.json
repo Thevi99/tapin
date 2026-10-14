@@ -1,0 +1,9 @@
+{
+  "session_id": "c7412033-afff-4261-8136-11665b4681b7",
+  "transcript_path": "/home/dev/.claude/projects/-home-dev-projects-demo/session.jsonl",
+  "cwd": "/home/dev/projects/demo",
+  "prompt_id": "c9e02a74-e573-4edf-9432-49d4fad797f6",
+  "permission_mode": "default",
+  "hook_event_name": "UserPromptSubmit",
+  "prompt": "Read a.txt, then run the shell command 'ls -la', then reply with one short sentence."
+}

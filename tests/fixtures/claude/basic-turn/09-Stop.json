@@ -1,0 +1,15 @@
+{
+  "session_id": "c7412033-afff-4261-8136-11665b4681b7",
+  "transcript_path": "/home/dev/.claude/projects/-home-dev-projects-demo/session.jsonl",
+  "cwd": "/home/dev/projects/demo",
+  "prompt_id": "c9e02a74-e573-4edf-9432-49d4fad797f6",
+  "permission_mode": "default",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "Stop",
+  "stop_hook_active": false,
+  "last_assistant_message": "`a.txt` contains \"hello\". The first `ls -la` printed nothing, so I reran it on the project directory: it lists `.claude/`, `.git/`, and `a.txt`.",
+  "background_tasks": [],
+  "session_crons": []
+}

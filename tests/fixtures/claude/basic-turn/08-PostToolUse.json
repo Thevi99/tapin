@@ -1,0 +1,25 @@
+{
+  "session_id": "c7412033-afff-4261-8136-11665b4681b7",
+  "transcript_path": "/home/dev/.claude/projects/-home-dev-projects-demo/session.jsonl",
+  "cwd": "/home/dev/projects/demo",
+  "prompt_id": "c9e02a74-e573-4edf-9432-49d4fad797f6",
+  "permission_mode": "default",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "pwd; ls -la /home/dev/projects/demo",
+    "description": "Print current directory and list the project directory"
+  },
+  "tool_response": {
+    "stdout": "/home/dev/projects/demo\ndrwxr-xr-x@ - dev 13 Oct 23:43 .claude\ndrwxr-xr-x@ - dev 13 Oct 23:43 .git\n.rw-r--r--@ 6 dev 13 Oct 23:43 a.txt",
+    "stderr": "",
+    "interrupted": false,
+    "isImage": false,
+    "noOutputExpected": false
+  },
+  "tool_use_id": "toolu_01XAVxmCzLhtb6PEjYwDsX5y",
+  "duration_ms": 30
+}

@@ -1,0 +1,17 @@
+{
+  "session_id": "c7412033-afff-4261-8136-11665b4681b7",
+  "transcript_path": "/home/dev/.claude/projects/-home-dev-projects-demo/session.jsonl",
+  "cwd": "/home/dev/projects/demo",
+  "prompt_id": "c9e02a74-e573-4edf-9432-49d4fad797f6",
+  "permission_mode": "default",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "touch approved.txt",
+    "description": "Create approved.txt"
+  },
+  "tool_use_id": "toolu_01Hf7c7YNZps141rRJHQZy9W"
+}

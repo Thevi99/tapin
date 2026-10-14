@@ -1,0 +1,8 @@
+[
+  {"id": "bg01", "cwd": "/home/dev/projects/api", "kind": "background", "startedAt": 1791900000000, "sessionId": "11111111-0000-0000-0000-000000000001", "name": "refactor auth", "state": "working"},
+  {"id": "bg02", "cwd": "/home/dev/projects/api", "kind": "background", "startedAt": 1791900000000, "sessionId": "11111111-0000-0000-0000-000000000002", "name": "fix flaky test", "state": "blocked"},
+  {"id": "bg03", "cwd": "/home/dev/projects/web", "kind": "background", "startedAt": 1791900000000, "sessionId": "11111111-0000-0000-0000-000000000003", "name": "old job", "state": "stopped"},
+  {"pid": 4101, "cwd": "/home/dev/projects/web", "kind": "interactive", "startedAt": 1791900000000, "sessionId": "22222222-0000-0000-0000-000000000001", "name": "web", "status": "waiting", "waitingFor": "permission prompt"},
+  {"pid": 4102, "cwd": "/home/dev/projects/cli", "kind": "interactive", "startedAt": 1791900000000, "sessionId": "22222222-0000-0000-0000-000000000002", "name": "cli", "status": "busy"},
+  {"pid": 4103, "cwd": "/home/dev/projects/docs", "kind": "interactive", "startedAt": 1791900000000, "sessionId": "22222222-0000-0000-0000-000000000003", "name": "docs", "status": "idle"}
+]
