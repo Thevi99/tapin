@@ -344,6 +344,9 @@ fn event_loop(
     config_error: Option<String>,
 ) -> Result<()> {
     let mut app = App::default();
+    // Answers only once the daemon says this inbox may answer: a daemon from
+    // before that check (v0.1) never says so, and must be restarted.
+    app.set_read_only(true);
     let mut connected = true;
     let mut status: Option<(String, Instant)> = None;
     // Jumps run off the UI thread: osascript may wait on a macOS permission prompt.
@@ -697,8 +700,8 @@ pub fn draw(f: &mut Frame, view: &View) {
         .style(Style::new().fg(Color::Cyan)),
         Some(message) => Paragraph::new(format!(" {message}")).style(Style::new().fg(Color::Cyan)),
         None if view.read_only => Paragraph::new(
-            " read-only: the daemon won't take answers from this inbox \
-             (started under an agent, or another tapin binary: restart the daemon)",
+            " read-only: the daemon won't take answers here (started under an agent, \
+             or a daemon from another tapin: restart it with pkill -f \"tapin daemon\")",
         )
         .style(Style::new().fg(Color::Yellow)),
         // Nothing reports through hooks yet: say what installing them adds.

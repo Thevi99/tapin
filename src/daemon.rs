@@ -301,6 +301,19 @@ fn handle(conn: UnixStream, state: &State, notifier: &Notifier, trusted: &[crate
                 broadcast(&mut shared);
             }
             Ok(Request::Subscribe) => {}
+            Ok(Request::Hello) => {
+                #[cfg(debug_assertions)]
+                if std::env::var_os("TAPIN_TEST_NO_HELLO").is_some() {
+                    continue; // plays a daemon from before the handshake
+                }
+                let hello = Reply::Hello {
+                    protocol: socket::PROTOCOL,
+                };
+                if let Ok(mut line) = serde_json::to_string(&hello) {
+                    line.push('\n');
+                    let _ = (&writer).write_all(line.as_bytes());
+                }
+            }
             Ok(Request::Snapshot) => {
                 let rows = state.lock().unwrap().inbox.rows(now());
                 if let Ok(mut line) = serde_json::to_string(&Update::Rows { rows }) {

@@ -58,6 +58,9 @@ pub enum Request {
     },
     /// Stream inbox snapshots to this connection.
     Subscribe,
+    /// Asks the daemon which protocol it speaks; a waiting hook sends this
+    /// first, so it never waits on a daemon too old to check who answers.
+    Hello,
     /// Reply with one inbox snapshot and nothing more (status bars). Unlike
     /// Subscribe it doesn't count as an open inbox someone could answer from.
     Snapshot,
@@ -79,8 +82,17 @@ pub enum Decision {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum Reply {
-    Decision { decision: Decision },
+    Decision {
+        decision: Decision,
+    },
+    /// The answer to `Hello`.
+    Hello {
+        protocol: u32,
+    },
 }
+
+/// The protocol this build speaks. 2: answers only from verified inboxes (#12).
+pub const PROTOCOL: u32 = 2;
 
 /// Daemon → subscriber.
 #[derive(Debug, Serialize, Deserialize)]

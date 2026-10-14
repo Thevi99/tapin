@@ -309,3 +309,27 @@ fn with_the_real_ancestry_check_a_poisoned_pid_still_refuses_nobody() {
     std::thread::sleep(Duration::from_millis(300));
     assert_eq!(first_message(&d.socket)["can_answer"], true);
 }
+
+#[test]
+fn a_hook_waits_only_for_a_daemon_that_speaks_the_current_protocol() {
+    // An older daemon (v0.1) never answers the hello: the hook must not wait
+    // for it, even if its binary looks right (macOS checks by path).
+    let d = start_daemon_with(&[], &[]);
+    let old = start_daemon_with(&[("TAPIN_TEST_NO_HELLO", std::path::Path::new("1"))], &[]);
+    let started = std::time::Instant::now();
+    let out = finish(
+        spawn_hook(&old.socket, &permission_payload(), &[]),
+        Duration::from_secs(5),
+    );
+    assert!(out.stdout.is_empty());
+    assert!(started.elapsed() < Duration::from_secs(2), "it didn't wait");
+    // The current daemon still holds the request for an answer.
+    let mut hook = spawn_hook(&d.socket, &permission_payload(), &[]);
+    std::thread::sleep(Duration::from_millis(600));
+    assert!(
+        hook.try_wait().unwrap().is_none(),
+        "waits on the current daemon"
+    );
+    let _ = hook.kill();
+    let _ = hook.wait();
+}

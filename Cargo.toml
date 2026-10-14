@@ -1,6 +1,6 @@
 [package]
 name = "tapin"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "An inbox for your AI coding agents. Approve, jump, done."
 license = "MIT"
@@ -11,7 +11,7 @@ categories = ["command-line-utilities"]
 readme = "README.md"
 rust-version = "1.85"
 # Only what builds the binary: tests and fixtures stay in the repo.
-include = ["/src/**", "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE"]
+include = ["/src/**", "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE", "/CHANGELOG.md"]
 
 [dependencies]
 anyhow = "1"

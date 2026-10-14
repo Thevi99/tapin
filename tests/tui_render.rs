@@ -366,3 +366,19 @@ fn a_read_only_inbox_says_why_y_does_nothing() {
     };
     assert!(text.contains("read-only"), "{text}");
 }
+
+#[test]
+fn read_only_explains_an_older_daemon_may_need_a_restart() {
+    let rows = [done_row()];
+    let mut t = Terminal::new(TestBackend::new(160, 6)).unwrap();
+    let view = View {
+        rows: &rows,
+        selected: Some(0),
+        connected: true,
+        read_only: true,
+        ..Default::default()
+    };
+    t.draw(|f| tapin::tui::draw(f, &view)).unwrap();
+    let text = format!("{:?}", t.backend().buffer());
+    assert!(text.contains("restart"), "{text}");
+}

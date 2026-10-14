@@ -97,8 +97,39 @@ fn daemon_is_genuine(stream: &UnixStream) -> bool {
     if std::env::var_os("TAPIN_TEST_DISTRUST_DAEMON").is_some() {
         return false;
     }
-    crate::peer::is_genuine_daemon(stream)
+    crate::peer::is_genuine_daemon(stream) && speaks_current_protocol(stream)
 }
+
+/// True if the daemon answers `Hello` with this build's protocol. A daemon
+/// from before it (v0.1, which took answers from anyone) stays silent, and
+/// on macOS it can look like this very binary after an upgrade.
+fn speaks_current_protocol(stream: &UnixStream) -> bool {
+    let Ok(mut line) = serde_json::to_string(&Request::Hello) else {
+        return false;
+    };
+    line.push('\n');
+    if (&*stream).write_all(line.as_bytes()).is_err() {
+        return false;
+    }
+    let _ = stream.set_read_timeout(Some(HELLO_TIMEOUT));
+    // Byte by byte, so nothing after the hello line is consumed here.
+    let mut reply = Vec::new();
+    let mut byte = [0u8; 1];
+    while reply.len() < 256 {
+        match (&*stream).read(&mut byte) {
+            Ok(1) if byte[0] == b'\n' => break,
+            Ok(1) => reply.push(byte[0]),
+            _ => return false,
+        }
+    }
+    matches!(
+        serde_json::from_slice(&reply),
+        Ok(Reply::Hello { protocol }) if protocol >= crate::socket::PROTOCOL
+    )
+}
+
+/// How long a hook waits for the daemon's hello before giving up on it.
+const HELLO_TIMEOUT: Duration = Duration::from_millis(300);
 
 fn set_deadline(from_start: Duration) {
     DEADLINE_MS.store(from_start.as_millis() as u64, Ordering::Relaxed);
