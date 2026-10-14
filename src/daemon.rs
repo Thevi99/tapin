@@ -20,6 +20,11 @@ struct Shared {
     inbox: Inbox,
     /// Open inboxes, by connection id; removed as soon as the connection closes.
     subscribers: Vec<(u64, UnixStream)>,
+    /// The open inboxes that passed the peer check (#12) and so may answer.
+    answerers: Vec<u64>,
+    /// Every agent pid hooks or passive mode reported, while it lives. Only
+    /// ever added to: a spoofed pid can't make the real one forgotten.
+    agent_pids: Vec<(u32, Option<u64>)>,
     next_subscriber: u64,
     /// Hooks blocked on a permission answer, by request id.
     pending: HashMap<u64, Pending>,
@@ -69,7 +74,25 @@ pub fn run(socket: &Path, notify: bool) -> Result<()> {
         loop {
             let claude = crate::passive::claude::poll();
             let codex = crate::passive::codex::poll();
+            let known: Vec<u32> = {
+                let shared = poller.lock().unwrap();
+                shared.agent_pids.iter().map(|(p, _)| *p).collect()
+            };
+            let passive_pids: Vec<(u32, Option<u64>)> = claude
+                .iter()
+                .chain(codex.iter())
+                .flatten()
+                .filter_map(|o| o.pid)
+                .filter(|pid| !known.contains(pid))
+                .map(|pid| (pid, crate::location::process_start(pid)))
+                .collect();
             let mut shared = poller.lock().unwrap();
+            // Pids seen by passive mode come from the OS: remember them too,
+            // with start times (read above, outside the lock) so a reused pid
+            // is never taken for the agent.
+            for (pid, start) in &passive_pids {
+                remember_agent(&mut shared, *pid, *start);
+            }
             if let Some(observed) = claude {
                 shared.inbox.observe(AgentKind::Claude, observed, now());
             }
@@ -102,10 +125,13 @@ pub fn run(socket: &Path, notify: bool) -> Result<()> {
         broadcast(&mut ticker.lock().unwrap());
     });
 
+    // Fixed at startup: the binary this daemon runs as (see `peer`).
+    let trusted = Arc::new(crate::peer::trusted_binaries());
     for conn in listener.incoming().flatten() {
         let state = state.clone();
         let notifier = notifier.clone();
-        std::thread::spawn(move || handle(conn, &state, &notifier));
+        let trusted = trusted.clone();
+        std::thread::spawn(move || handle(conn, &state, &notifier, &trusted));
     }
     Ok(())
 }
@@ -143,7 +169,23 @@ fn bind(socket: &Path) -> Result<Option<UnixListener>> {
     Ok(Some(listener))
 }
 
-fn handle(conn: UnixStream, state: &State, notifier: &Notifier) {
+/// True if the process at the other end of `conn` may answer requests (#12).
+fn may_answer(conn: &UnixStream, state: &State, trusted: &[crate::peer::Trusted]) -> bool {
+    let Some(peer) = crate::peer::checked(conn) else {
+        return false;
+    };
+    let agent_pids: Vec<u32> = {
+        let shared = state.lock().unwrap();
+        let known = shared.agent_pids.iter().map(|(pid, _)| *pid);
+        let current = shared.inbox.agents().into_iter().map(|(_, pid, _)| pid);
+        known.chain(current).filter(|pid| *pid > 1).collect()
+    };
+    // SAFETY: geteuid has no preconditions.
+    let uid = unsafe { libc::geteuid() };
+    crate::peer::verify(&peer, uid, trusted, &agent_pids).is_ok()
+}
+
+fn handle(conn: UnixStream, state: &State, notifier: &Notifier, trusted: &[crate::peer::Trusted]) {
     let Ok(writer) = conn.try_clone() else { return };
     // The request this connection's hook is waiting on, if it is one.
     let mut waiting_on: Option<u64> = None;
@@ -155,8 +197,21 @@ fn handle(conn: UnixStream, state: &State, notifier: &Notifier) {
             Ok(Request::Event {
                 agent,
                 payload,
-                location,
+                mut location,
             }) => {
+                // A reported agent pid must be a live process named like an
+                // agent: anything else (pid 1, the user's terminal or tmux)
+                // could be used to refuse every inbox. (Not "the sender's
+                // ancestor": a hook has usually exited by the time we look.)
+                if let Some(loc) = location.as_deref_mut() {
+                    if loc
+                        .agent_pid
+                        .is_some_and(|pid| !crate::location::is_agent_named(pid))
+                    {
+                        loc.agent_pid = None;
+                        loc.agent_start = None;
+                    }
+                }
                 let event = adapters::hooks::parse(&payload, agent);
                 if let Some(event) = event {
                     let mut shared = state.lock().unwrap();
@@ -187,6 +242,9 @@ fn handle(conn: UnixStream, state: &State, notifier: &Notifier) {
                     shared.inbox.apply(event, now());
                     if let Some(location) = &location {
                         shared.inbox.locate(&session_id, location);
+                        if let Some(pid) = location.agent_pid {
+                            remember_agent(&mut shared, pid, location.agent_start);
+                        }
                     }
                     // A request replacing another (NEEDS → NEEDS) is news too.
                     let was = if is_request { None } else { was };
@@ -196,7 +254,7 @@ fn handle(conn: UnixStream, state: &State, notifier: &Notifier) {
                     }
                     // An agent that holds its own prompt until the hook returns must not
                     // wait on a tapin nobody is looking at: let it ask in its terminal.
-                    let nobody_to_answer = shared.subscribers.is_empty();
+                    let nobody_to_answer = shared.answerers.is_empty();
                     if answerable && agent.prompt_waits_for_hook() && nobody_to_answer {
                         if let Ok(hook) = writer.try_clone() {
                             reply(hook, Decision::Pass);
@@ -221,16 +279,28 @@ fn handle(conn: UnixStream, state: &State, notifier: &Notifier) {
                     broadcast(&mut shared);
                 }
             }
-            Ok(Request::Subscribe) => {
-                let Ok(sub) = writer.try_clone() else { return };
+            Ok(Request::Subscribe) if subscribed_as.is_none() => {
+                let Ok(mut sub) = writer.try_clone() else {
+                    return;
+                };
                 let _ = sub.set_write_timeout(Some(Duration::from_millis(200)));
+                // Checked before taking the lock: it reads the process table.
+                let can_answer = may_answer(&writer, state, trusted);
+                if let Ok(mut line) = serde_json::to_string(&Update::Access { can_answer }) {
+                    line.push('\n');
+                    let _ = sub.write_all(line.as_bytes());
+                }
                 let mut shared = state.lock().unwrap();
                 shared.next_subscriber += 1;
                 let id = shared.next_subscriber;
                 shared.subscribers.push((id, sub));
+                if can_answer {
+                    shared.answerers.push(id);
+                }
                 subscribed_as = Some(id);
                 broadcast(&mut shared);
             }
+            Ok(Request::Subscribe) => {}
             Ok(Request::Snapshot) => {
                 let rows = state.lock().unwrap().inbox.rows(now());
                 if let Ok(mut line) = serde_json::to_string(&Update::Rows { rows }) {
@@ -240,6 +310,31 @@ fn handle(conn: UnixStream, state: &State, notifier: &Notifier) {
                 }
             }
             Ok(Request::Decide { request_id, allow }) => {
+                // Only an inbox that passed the peer check, checked again now
+                // (the process table may have changed since it subscribed).
+                let approved_inbox =
+                    subscribed_as.is_some_and(|id| state.lock().unwrap().answerers.contains(&id));
+                if !approved_inbox {
+                    continue;
+                }
+                if !may_answer(&writer, state, trusted) {
+                    // No longer trusted: it stops counting as an inbox that
+                    // can answer, and is told so.
+                    let mut shared = state.lock().unwrap();
+                    if let Some(id) = subscribed_as {
+                        shared.answerers.retain(|a| *a != id);
+                    }
+                    if shared.answerers.is_empty() {
+                        release_unwatched(&mut shared);
+                    }
+                    drop(shared);
+                    let access = Update::Access { can_answer: false };
+                    if let Ok(mut line) = serde_json::to_string(&access) {
+                        line.push('\n');
+                        let _ = (&writer).write_all(line.as_bytes());
+                    }
+                    continue;
+                }
                 let mut shared = state.lock().unwrap();
                 // Answers name the exact request: a stale or second answer finds nothing.
                 if let Some(p) = shared.pending.remove(&request_id) {
@@ -263,7 +358,8 @@ fn handle(conn: UnixStream, state: &State, notifier: &Notifier) {
     if let Some(id) = subscribed_as {
         let mut shared = state.lock().unwrap();
         shared.subscribers.retain(|(s, _)| *s != id);
-        if shared.subscribers.is_empty() {
+        shared.answerers.retain(|s| *s != id);
+        if shared.answerers.is_empty() {
             release_unwatched(&mut shared);
         }
     }
@@ -282,7 +378,19 @@ const LIVENESS_EVERY: Duration = Duration::from_secs(2);
 
 /// Ends sessions whose agent process is gone (or whose pid now belongs to a
 /// different process, judged by start time). Checks run outside the lock.
+/// Adds an agent process to the append-only registry (until it's gone).
+fn remember_agent(shared: &mut Shared, pid: u32, start: Option<u64>) {
+    if pid > 1 && !shared.agent_pids.iter().any(|(p, _)| *p == pid) {
+        shared.agent_pids.push((pid, start));
+    }
+}
+
 fn reap_dead_agents(state: &State) {
+    state
+        .lock()
+        .unwrap()
+        .agent_pids
+        .retain(|(pid, start)| !crate::location::is_gone(*pid, *start));
     let agents = state.lock().unwrap().inbox.agents();
     let dead: Vec<(String, u32)> = agents
         .into_iter()
@@ -359,9 +467,25 @@ fn broadcast(shared: &mut Shared) {
         return;
     };
     line.push('\n');
-    shared
-        .subscribers
-        .retain_mut(|(_, s)| s.write_all(line.as_bytes()).is_ok());
+    let mut dropped = Vec::new();
+    shared.subscribers.retain_mut(|(id, s)| {
+        let ok = s.write_all(line.as_bytes()).is_ok();
+        if !ok {
+            // Hang up, so the inbox shows "disconnected" instead of looking
+            // like it can still answer.
+            let _ = s.shutdown(std::net::Shutdown::Both);
+            dropped.push(*id);
+        }
+        ok
+    });
+    // A dropped inbox (gone, or too slow to read) can't answer any more.
+    if !dropped.is_empty() {
+        let had = !shared.answerers.is_empty();
+        shared.answerers.retain(|a| !dropped.contains(a));
+        if had && shared.answerers.is_empty() {
+            release_unwatched(shared);
+        }
+    }
 }
 
 fn now() -> u64 {

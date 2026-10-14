@@ -348,3 +348,21 @@ fn grouped_rows_get_a_folder_header_and_the_cursor_stays_on_its_row() {
     );
     assert!(lines[5].contains("three"), "{lines:#?}");
 }
+
+#[test]
+fn a_read_only_inbox_says_why_y_does_nothing() {
+    let text = {
+        let rows = [done_row()];
+        let mut t = Terminal::new(TestBackend::new(100, 6)).unwrap();
+        let view = View {
+            rows: &rows,
+            selected: Some(0),
+            connected: true,
+            read_only: true,
+            ..Default::default()
+        };
+        t.draw(|f| tapin::tui::draw(f, &view)).unwrap();
+        format!("{:?}", t.backend().buffer())
+    };
+    assert!(text.contains("read-only"), "{text}");
+}

@@ -65,7 +65,7 @@ Run `tapin doctor` to see what's set up. It also tells you why approvals might n
 - **Local only.** There is no network access. Sessions travel over a Unix socket that only your user can open (0600, in a directory nobody else can write).
 - **Hooks fail open.** If tapin isn't running, is slow, or crashes, the agent carries on as if tapin weren't installed. A timeout never denies anything. The hook never exits with an error code an agent would read as "block".
 - **Answers are tied to one request.** A stale or duplicate `y` can't approve a newer request.
-- Any process running as *your* user can talk to the socket. That's the same trust boundary as your agent's own settings file. See [#12](https://github.com/Thevi99/tapin/issues/12).
+- **Only a real tapin inbox can approve.** The daemon checks the process on the other end of the socket. It must be your user, running the same tapin file, with no agent anywhere above it. Hooks check the daemon the same way. So an agent can't approve its own request with `nc`, a script, a tapin it launched, or a fake daemon. A process running as your user that goes out of its way (detaching from the agent, ptrace, or simply editing your agent's settings) can still get around this. Treat it as a guard against accidents and prompt injection, not a sandbox. Agents that run as `node` (npm-installed Claude Code, Gemini CLI) are recognised through passive mode or their hooks, not by name. After upgrading tapin, restart the daemon (`pkill -f "tapin daemon"`). See [#12](https://github.com/Thevi99/tapin/issues/12).
 
 ## Keys
 

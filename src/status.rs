@@ -54,5 +54,6 @@ fn snapshot(socket: &Path) -> Option<Vec<Row>> {
     BufReader::new(stream).read_line(&mut reply).ok()?;
     match serde_json::from_str(&reply).ok()? {
         Update::Rows { rows } => Some(rows),
+        Update::Access { .. } => None,
     }
 }

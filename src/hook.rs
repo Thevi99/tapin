@@ -51,6 +51,11 @@ pub fn run(agent: AgentKind, socket: &Path) {
     let Ok(mut stream) = UnixStream::connect(socket) else {
         return;
     };
+    // An answer may only come from tapin's own daemon: anything else on the
+    // socket (say, an agent's fake daemon that approves everything) is never
+    // waited for. The event is still sent, so the request shows in the inbox
+    // (e.g. right after an upgrade, until the daemon restarts).
+    let waits = waits && daemon_is_genuine(&stream);
     let _ = stream.set_write_timeout(Some(BUDGET));
     // The process walk (tty, agent pid) is only worth it when a session (re)appears.
     let walk = matches!(
@@ -85,6 +90,14 @@ pub fn run(agent: AgentKind, socket: &Path) {
         print!("{output}");
         let _ = std::io::stdout().flush();
     }
+}
+
+fn daemon_is_genuine(stream: &UnixStream) -> bool {
+    #[cfg(debug_assertions)]
+    if std::env::var_os("TAPIN_TEST_DISTRUST_DAEMON").is_some() {
+        return false;
+    }
+    crate::peer::is_genuine_daemon(stream)
 }
 
 fn set_deadline(from_start: Duration) {

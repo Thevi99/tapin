@@ -131,6 +131,22 @@ fn walk_ancestors() -> Ancestry {
     found
 }
 
+/// True if `pid` is a live process named like an agent, by the same rule the
+/// hook's walk uses (basename of `ps -o comm=`), so both sides agree.
+pub fn is_agent_named(pid: u32) -> bool {
+    if pid <= 1 {
+        return false;
+    }
+    let Some(out) = ps(&["-o", "comm=", "-p", &pid.to_string()]) else {
+        return false;
+    };
+    let name = std::path::Path::new(out.trim())
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+    AGENT_NAMES.contains(&name)
+}
+
 /// When a process started, in epoch seconds, from `ps -o etime=` (elapsed
 /// time is locale- and timezone-free, unlike `lstart`). None if it's gone.
 pub fn process_start(pid: u32) -> Option<u64> {

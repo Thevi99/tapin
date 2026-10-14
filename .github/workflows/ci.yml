@@ -26,3 +26,16 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
       - name: Tests
         run: cargo test
+      # Test-only switches (#12) must never ship: they exist only under
+      # debug_assertions, so the release binary must not even contain them.
+      - name: Release binary has no test switches
+        run: |
+          # dist builds the released binaries; `cargo install` uses release.
+          cargo build --profile dist
+          cargo build --release
+          for bin in target/dist/tapin target/release/tapin; do
+            if strings "$bin" | grep -E 'TAPIN_TEST_|TAPIN_TRUST_PEER'; then
+              echo "test-only switch found in $bin" >&2
+              exit 1
+            fi
+          done

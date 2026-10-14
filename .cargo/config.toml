@@ -11,3 +11,6 @@ XDG_CONFIG_HOME = { value = "target/test-isolation/config", relative = true, for
 TAPIN_CLAUDE_CMD = { value = "target/test-isolation/no-claude", relative = true, force = true }
 TAPIN_PS_CMD = { value = "target/test-isolation/no-ps", relative = true, force = true }
 GEMINI_CLI_HOME = { value = "target/test-isolation/gemini-home", relative = true, force = true }
+# The suite often runs under an agent (a developer's Claude Code), which the
+# #12 ancestry check would treat as "started by an agent". Debug builds only.
+TAPIN_TEST_IGNORE_ANCESTRY = { value = "1", force = true }

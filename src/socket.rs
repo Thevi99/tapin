@@ -86,5 +86,11 @@ pub enum Reply {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum Update {
-    Rows { rows: Vec<Row> },
+    Rows {
+        rows: Vec<Row>,
+    },
+    /// Sent once after Subscribe: whether this inbox may answer requests (#12).
+    Access {
+        can_answer: bool,
+    },
 }

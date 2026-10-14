@@ -428,3 +428,10 @@ fn g_keeps_the_same_request_under_the_cursor_so_y_still_answers_it() {
     app.key('g', WIDE, Instant::now());
     assert_eq!(app.key('y', WIDE, Instant::now()), Action::Decide(7, true));
 }
+
+#[test]
+fn a_read_only_inbox_never_sends_answers() {
+    let mut app = settled(vec![needs("a", 7)]);
+    app.set_read_only(true);
+    assert_eq!(app.key('y', WIDE, Instant::now()), Action::None);
+}

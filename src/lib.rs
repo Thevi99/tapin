@@ -11,6 +11,7 @@ pub mod jump;
 pub mod location;
 pub mod notify;
 pub mod passive;
+pub mod peer;
 pub mod setup;
 pub mod socket;
 pub mod status;

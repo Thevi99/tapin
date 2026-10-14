@@ -54,17 +54,17 @@ fn connect_or_spawn(socket: &Path, no_notify: bool) -> Result<UnixStream> {
     }
 }
 
-/// Snapshots from the daemon; `None` means the connection is gone.
-type Feed = mpsc::Receiver<Option<Vec<Row>>>;
+/// Messages from the daemon; `None` means the connection is gone.
+type Feed = mpsc::Receiver<Option<Update>>;
 
-fn subscribe(mut stream: UnixStream, tx: mpsc::Sender<Option<Vec<Row>>>) -> Result<()> {
+fn subscribe(mut stream: UnixStream, tx: mpsc::Sender<Option<Update>>) -> Result<()> {
     let mut line = serde_json::to_string(&Request::Subscribe)?;
     line.push('\n');
     stream.write_all(line.as_bytes())?;
     std::thread::spawn(move || {
         for line in BufReader::new(stream).lines().map_while(Result::ok) {
-            if let Ok(Update::Rows { rows }) = serde_json::from_str(&line) {
-                if tx.send(Some(rows)).is_err() {
+            if let Ok(update) = serde_json::from_str::<Update>(&line) {
+                if tx.send(Some(update)).is_err() {
                     return;
                 }
             }
@@ -87,6 +87,8 @@ pub struct App {
     typing: bool,
     /// `g`: rows from the same folder sit together.
     grouped: bool,
+    /// The daemon won't take answers from this inbox (#12).
+    read_only: bool,
     /// The session the user chose (kept across re-sorts and while it vanishes).
     selected: Option<String>,
     index: Option<usize>,
@@ -126,6 +128,11 @@ impl App {
     /// True if `rows` brings a request this inbox hasn't seen, hidden or not.
     pub fn rings_for(&self, rows: &[Row]) -> bool {
         new_requests(&self.all, rows) > 0
+    }
+
+    /// The daemon said this inbox may not answer requests.
+    pub fn set_read_only(&mut self, read_only: bool) {
+        self.read_only = read_only;
     }
 
     /// True when rows are grouped by folder (`g`).
@@ -287,6 +294,7 @@ impl App {
                 self.move_to(i, now);
                 Action::None
             }
+            'y' | 'n' if self.read_only => Action::None,
             c @ ('y' | 'n') => {
                 let Some(row) = row else { return Action::None };
                 // Never approve what the user couldn't see in full, and ignore
@@ -314,6 +322,7 @@ impl App {
             filter: self.filter.as_deref(),
             typing: self.typing,
             grouped: self.grouped,
+            read_only: self.read_only,
             hidden: self.all.len() - self.rows.len(),
             hidden_waiting: waiting(&self.all) - waiting(&self.rows),
         }
@@ -342,7 +351,8 @@ fn event_loop(
     loop {
         while let Ok(update) = rx.try_recv() {
             match update {
-                Some(rows) => {
+                Some(Update::Access { can_answer }) => app.set_read_only(!can_answer),
+                Some(Update::Rows { rows }) => {
                     if bell && app.rings_for(&rows) {
                         use std::io::Write as _;
                         let mut out = std::io::stdout();
@@ -591,6 +601,8 @@ pub struct View<'a> {
     pub typing: bool,
     /// Rows are grouped by folder: draw a header before each group.
     pub grouped: bool,
+    /// The daemon won't take answers from this inbox.
+    pub read_only: bool,
     /// Rows the filter hides, and how many of those wait on the user.
     pub hidden: usize,
     pub hidden_waiting: usize,
@@ -684,6 +696,11 @@ pub fn draw(f: &mut Frame, view: &View) {
         ))
         .style(Style::new().fg(Color::Cyan)),
         Some(message) => Paragraph::new(format!(" {message}")).style(Style::new().fg(Color::Cyan)),
+        None if view.read_only => Paragraph::new(
+            " read-only: the daemon won't take answers from this inbox \
+             (started under an agent, or another tapin binary: restart the daemon)",
+        )
+        .style(Style::new().fg(Color::Yellow)),
         // Nothing reports through hooks yet: say what installing them adds.
         None if !rows.is_empty() && rows.iter().all(|r| r.passive) => Paragraph::new(
             " passive mode (no hooks) · run `tapin init` to approve here and get live status",
