@@ -12,9 +12,9 @@ You run Claude Code in three projects and Codex in a fourth. Every few minutes o
 ## Quickstart
 
 ```bash
-brew install Thevi99/tap/tapin   # or: cargo install tapin
-tapin init                       # shows the exact change to each agent's config, asks first
-tapin                            # open the inbox
+brew tap Thevi99/tap && brew install tapin   # or: cargo install tapin
+tapin init                                   # shows the exact change to each agent's config, asks first
+tapin                                        # open the inbox
 ```
 
 Or use the prebuilt binary for macOS or Linux, with no Rust needed:

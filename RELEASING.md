@@ -25,7 +25,7 @@ Releases are built by [dist](https://opensource.axo.dev/cargo-dist/) (`dist-work
 4. CI builds macOS (arm64, x86_64) and static Linux musl (arm64, x86_64) binaries. It then creates the GitHub Release with installers, updates `Thevi99/homebrew-tap`, and publishes to crates.io.
 5. Verify on a clean machine:
    ```bash
-   brew install Thevi99/tap/tapin && tapin --version
+   brew tap Thevi99/tap && brew install tapin && tapin --version
    curl --proto '=https' --tlsv1.2 -LsSf https://github.com/Thevi99/tapin/releases/latest/download/tapin-installer.sh | sh
    cargo install tapin
    ```
