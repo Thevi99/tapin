@@ -180,3 +180,142 @@ fn a_newer_request_from_the_same_session_pulls_the_cursor_too() {
         Some("a".into())
     );
 }
+
+fn project(id: &str, state: State, project: &str) -> Row {
+    Row {
+        project: project.into(),
+        ..with_state(id, state)
+    }
+}
+
+fn typed(app: &mut App, keys: &str) -> Vec<Action> {
+    keys.chars()
+        .map(|c| app.key(c, WIDE, Instant::now() + Duration::from_secs(5)))
+        .collect()
+}
+
+#[test]
+fn typing_a_filter_never_approves_quits_or_moves() {
+    let mut app = settled(vec![needs("a", 7), with_state("b", State::Done)]);
+    let actions = typed(&mut app, "/yqnjk\n");
+    assert!(actions.iter().all(|a| *a == Action::None), "{actions:?}");
+}
+
+#[test]
+fn a_filter_shows_only_matching_rows_and_esc_brings_them_back() {
+    let mut app = settled(vec![
+        project("a", State::Done, "shop-api"),
+        project("b", State::Done, "docs-site"),
+    ]);
+    typed(&mut app, "/DOCS\n");
+    assert_eq!(app.visible().len(), 1);
+    assert_eq!(
+        jump_target(app.key('\n', WIDE, Instant::now())),
+        Some("b".into())
+    );
+    // New snapshots stay filtered.
+    app.update(
+        vec![
+            project("a", State::Done, "shop-api"),
+            project("b", State::Done, "docs-site"),
+        ],
+        Instant::now(),
+    );
+    assert_eq!(app.visible().len(), 1);
+    app.key('\x1b', WIDE, Instant::now());
+    assert_eq!(app.visible().len(), 2);
+}
+
+#[test]
+fn backspace_edits_and_esc_while_typing_cancels() {
+    let mut app = settled(vec![
+        project("a", State::Done, "shop-api"),
+        project("b", State::Done, "docs-site"),
+    ]);
+    typed(&mut app, "/docx\x08");
+    assert_eq!(app.filter(), Some("doc"));
+    assert_eq!(app.visible().len(), 1);
+    app.key('\x1b', WIDE, Instant::now());
+    assert_eq!(app.filter(), None);
+    assert_eq!(app.visible().len(), 2);
+}
+
+#[test]
+fn y_never_answers_a_request_the_filter_hides() {
+    let mut app = settled(vec![needs("a", 7), project("b", State::Done, "docs-site")]);
+    typed(&mut app, "/docs\n");
+    // A new request arrives while filtered out: it must not grab the cursor.
+    app.update(
+        vec![
+            needs("a", 7),
+            needs("c", 9),
+            project("b", State::Done, "docs-site"),
+        ],
+        Instant::now(),
+    );
+    let later = Instant::now() + Duration::from_secs(5);
+    assert_eq!(app.key('y', WIDE, later), Action::None);
+    assert_eq!(jump_target(app.key('\n', WIDE, later)), Some("b".into()));
+}
+
+#[test]
+fn y_right_after_a_filter_change_lands_on_a_request_waits_to_settle() {
+    let mut app = settled(vec![
+        project("b", State::Done, "docs-site"),
+        Row {
+            project: "api".into(),
+            ..needs("a", 9)
+        },
+    ]);
+    app.key('k', WIDE, Instant::now());
+    typed(&mut app, "/api\n");
+    let now = Instant::now() + Duration::from_secs(5);
+    assert_eq!(app.key('y', WIDE, now), Action::None);
+    assert_eq!(
+        app.key('y', WIDE, now + Duration::from_secs(1)),
+        Action::Decide(9, true)
+    );
+}
+
+#[test]
+fn the_view_still_counts_requests_the_filter_hides() {
+    let mut app = settled(vec![needs("a", 7), project("b", State::Done, "docs-site")]);
+    typed(&mut app, "/docs\n");
+    let view = app.view(true, None);
+    assert_eq!(view.rows.len(), 1);
+    assert_eq!((view.hidden, view.hidden_waiting), (1, 1));
+}
+
+#[test]
+fn arrow_keys_never_type_into_the_filter() {
+    let mut app = settled(vec![project("b", State::Done, "docs-site")]);
+    app.key('/', WIDE, Instant::now());
+    assert!(app.typing());
+    // The event loop drops arrows and Ctrl keys while typing.
+    assert!(!tapin::tui::passes_while_typing(
+        crossterm::event::KeyCode::Down,
+        false
+    ));
+    assert!(!tapin::tui::passes_while_typing(
+        crossterm::event::KeyCode::Char('c'),
+        true
+    ));
+    assert!(tapin::tui::passes_while_typing(
+        crossterm::event::KeyCode::Char('c'),
+        false
+    ));
+}
+
+#[test]
+fn the_bell_rings_once_per_new_request_even_when_the_filter_hides_it() {
+    let rows = vec![needs("a", 7), project("b", State::Done, "docs-site")];
+    let mut app = settled(rows.clone());
+    typed(&mut app, "/docs\n");
+    assert!(!app.rings_for(&rows), "a request already seen, only hidden");
+    let more = vec![
+        needs("a", 7),
+        needs("c", 9),
+        project("b", State::Done, "docs-site"),
+    ];
+    assert!(app.rings_for(&more));
+}

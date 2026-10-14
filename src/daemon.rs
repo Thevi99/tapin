@@ -64,19 +64,30 @@ pub fn run(socket: &Path, notify: bool) -> Result<()> {
 
     let poller = state.clone();
     let every = Duration::from_secs(config.passive_poll_secs.max(1));
-    std::thread::spawn(move || loop {
-        let claude = crate::passive::claude::poll();
-        let codex = crate::passive::codex::poll();
-        let mut shared = poller.lock().unwrap();
-        if let Some(observed) = claude {
-            shared.inbox.observe(AgentKind::Claude, observed, now());
+    std::thread::spawn(move || {
+        let mut contexts = crate::context::Cache::default();
+        loop {
+            let claude = crate::passive::claude::poll();
+            let codex = crate::passive::codex::poll();
+            let mut shared = poller.lock().unwrap();
+            if let Some(observed) = claude {
+                shared.inbox.observe(AgentKind::Claude, observed, now());
+            }
+            if let Some(observed) = codex {
+                shared.inbox.observe(AgentKind::Codex, observed, now());
+            }
+            let transcripts = shared.inbox.transcripts();
+            drop(shared);
+            // File reads happen outside the lock, so hooks never wait on them.
+            let read = contexts.read_all(&transcripts);
+            let mut shared = poller.lock().unwrap();
+            for (id, pct) in read {
+                shared.inbox.set_context(&id, pct);
+            }
+            // The 1s ticker broadcasts the result; no extra broadcast per poll.
+            drop(shared);
+            std::thread::sleep(every);
         }
-        if let Some(observed) = codex {
-            shared.inbox.observe(AgentKind::Codex, observed, now());
-        }
-        // The 1s ticker broadcasts the result; no extra broadcast per poll.
-        drop(shared);
-        std::thread::sleep(every);
     });
 
     let watcher = state.clone();

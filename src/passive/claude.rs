@@ -1,10 +1,13 @@
 //! Claude Code via `claude agents --json`, which its docs call the supported
 //! way to read session state from outside (agent view, research preview).
-//! Transcript files are not used: their format is internal to Claude Code.
+//! Session state never comes from transcript files (their format is internal
+//! to Claude Code); they are only located here for the context % column,
+//! which shows nothing when it can't read them.
 
 use super::{run_with_timeout, Observation};
 use crate::inbox::State;
 use serde::Deserialize;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 #[derive(Deserialize)]
@@ -52,9 +55,53 @@ pub fn parse_agents(json: &str) -> anyhow::Result<Vec<Observation>> {
                 pid: e.pid,
                 label: e.name.filter(|n| !n.is_empty()),
                 tty: None,
+                transcript: None,
             })
         })
         .collect())
+}
+
+/// A session's transcript: `<projects>/<cwd with every non-alphanumeric
+/// character as '-'>/<session>.jsonl`, or wherever `<session>.jsonl` is if
+/// Claude named the folder another way.
+pub fn transcript_for(projects: &Path, cwd: &str, session_id: &str) -> Option<PathBuf> {
+    let file = format!("{session_id}.jsonl");
+    let slug: String = cwd
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    let direct = projects.join(slug).join(&file);
+    if direct.is_file() {
+        return Some(direct);
+    }
+    std::fs::read_dir(projects)
+        .ok()?
+        .flatten()
+        .map(|d| d.path().join(&file))
+        .find(|p| p.is_file())
+}
+
+/// `transcript_for`, remembered across polls: a found path is reused while
+/// it exists, and a miss (e.g. a session with no turn yet) is retried at most
+/// every 30s, so `projects/` isn't scanned for every session every poll.
+fn remembered_transcript(projects: &Path, cwd: &str, session_id: &str) -> Option<PathBuf> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    use std::time::Instant;
+    type Seen = HashMap<String, (Option<PathBuf>, Instant)>;
+    static SEEN: OnceLock<Mutex<Seen>> = OnceLock::new();
+    let mut seen = SEEN.get_or_init(Mutex::default).lock().ok()?;
+    match seen.get(session_id) {
+        Some((Some(p), _)) if p.is_file() => return Some(p.clone()),
+        Some((None, at)) if at.elapsed() < Duration::from_secs(30) => return None,
+        _ => {}
+    }
+    let found = transcript_for(projects, cwd, session_id);
+    if seen.len() > 1000 {
+        seen.clear(); // sessions come and go; never grow without bound
+    }
+    seen.insert(session_id.to_string(), (found.clone(), Instant::now()));
+    found
 }
 
 /// The current sessions, or None if Claude Code isn't available right now
@@ -66,7 +113,11 @@ pub fn poll() -> Option<Vec<Observation>> {
     let mut observed = parse_agents(&out).ok()?;
     let pids: Vec<u32> = observed.iter().filter_map(|o| o.pid).collect();
     let ttys = super::ttys_of(&pids);
+    let projects = crate::setup::claude_dir().map(|d| d.join("projects"));
     for o in &mut observed {
+        o.transcript = projects
+            .as_deref()
+            .and_then(|p| remembered_transcript(p, &o.cwd, &o.session_id));
         o.tty = o
             .pid
             .and_then(|p| ttys.iter().find(|(q, _)| *q == p).map(|(_, t)| t.clone()));

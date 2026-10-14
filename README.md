@@ -33,6 +33,7 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/Thevi99/tapin/releases/
 - **Desktop notifications** when an agent needs you or finishes. If you run agents in bypass mode, you still know the moment one is done.
 - **Zero-setup passive mode.** It reads Claude Code's `claude agents --json` and Codex's session files. It's read-only.
 - **See who's who at a glance.** Each row carries its agent's own mark: `✻` Claude, `>_` Codex, `✦` Gemini.
+- **How full each context is.** `ctx 64%` turns yellow at 80% and red at 95%. It's read from the agent's own transcript. If the window size isn't known for sure, the row shows the size instead (`ctx 132k`).
 - **In your status bar.** `tapin status` prints `NEEDS 1 · DONE 2` for tmux or your prompt (see below).
 - **One small binary.** Rust, no runtime, macOS and Linux.
 
@@ -72,6 +73,7 @@ Run `tapin doctor` to see what's set up. It also tells you why approvals might n
 |---|---|
 | `Enter` | jump to the agent's pane or window |
 | `Tab` | next agent waiting on you (a request or a finished turn) |
+| `/` | filter by project, agent, detail or folder (`Esc` clears) |
 | `y` / `n` | approve / deny the selected request |
 | `d` | details: full input, last message, cwd, where it runs |
 | `?` | help |

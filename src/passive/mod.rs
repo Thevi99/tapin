@@ -24,6 +24,8 @@ pub struct Observation {
     pub label: Option<String>,
     /// The agent's terminal, so Enter can jump to it.
     pub tty: Option<String>,
+    /// The agent's transcript (Claude) or rollout (Codex) file.
+    pub transcript: Option<std::path::PathBuf>,
 }
 
 /// The controlling tty of each pid (`ps` prints `??`/`?` for none).

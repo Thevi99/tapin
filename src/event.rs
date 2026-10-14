@@ -35,6 +35,8 @@ pub struct AgentEvent {
     pub cwd: String,
     /// The model, when the payload names it (Codex does on every event).
     pub model: Option<String>,
+    /// The agent's transcript file, when the payload names it.
+    pub transcript: Option<String>,
     pub kind: EventKind,
 }
 

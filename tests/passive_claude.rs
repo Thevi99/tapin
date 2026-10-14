@@ -150,6 +150,7 @@ fn passive_claude_rows_can_be_jumped_to_by_tty() {
         pid: Some(4242),
         label: Some("dev-37".into()),
         tty: Some("/dev/ttys004".into()),
+        transcript: None,
     }];
     inbox.observe(AgentKind::Claude, obs, 0);
     let rows = inbox.rows(1);

@@ -58,6 +58,7 @@ pub fn parse(raw: &Value, agent: AgentKind) -> Option<AgentEvent> {
             .and_then(Value::as_str)
             .filter(|m| !m.is_empty())
             .map(String::from),
+        transcript: transcript(raw),
         kind,
     })
 }
@@ -138,8 +139,13 @@ fn parse_gemini(raw: &Value, name: &str, agent: AgentKind) -> Option<AgentEvent>
         agent,
         cwd: str_field(raw, "cwd"),
         model: None,
+        transcript: transcript(raw),
         kind,
     })
+}
+
+fn transcript(raw: &Value) -> Option<String> {
+    Some(str_field(raw, "transcript_path")).filter(|p| !p.is_empty())
 }
 
 fn str_field(raw: &Value, key: &str) -> String {

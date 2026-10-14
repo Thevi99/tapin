@@ -49,6 +49,9 @@ struct Session {
     last_tool: String,
     /// The agent's own name for the session, if a passive source gave one.
     label: Option<String>,
+    /// Where the agent writes its transcript, and how full its context is.
+    transcript: Option<PathBuf>,
+    context: Option<crate::context::Context>,
 }
 
 /// One inbox line, ready to render.
@@ -71,6 +74,9 @@ pub struct Row {
     pub model: Option<String>,
     /// Only seen from outside (no hooks): it can't be answered from tapin.
     pub passive: bool,
+    /// How full the agent's context window is, when its transcript says.
+    #[serde(default)]
+    pub context: Option<crate::context::Context>,
 }
 
 #[derive(Debug, Default)]
@@ -133,6 +139,7 @@ impl Inbox {
         };
         let mut last_message = None;
         let model = ev.model.clone();
+        let transcript = ev.transcript.clone();
         let started_tool = match &ev.kind {
             EventKind::ToolStarted { summary } => Some(summary.clone()),
             _ => None,
@@ -197,6 +204,8 @@ impl Inbox {
                     hooked: true,
                     last_tool: String::new(),
                     label: None,
+                    transcript: None,
+                    context: None,
                 });
                 self.sessions.last_mut().unwrap()
             }
@@ -210,6 +219,9 @@ impl Inbox {
         session.request_input = input;
         if let Some(m) = last_message {
             session.last_message = m;
+        }
+        if let Some(t) = transcript {
+            session.transcript = Some(PathBuf::from(t));
         }
         if model.is_some() {
             session.model = model;
@@ -262,7 +274,11 @@ impl Inbox {
             }
             match self.sessions.iter_mut().find(|s| s.id == o.session_id) {
                 // Hooks report their own agent; a passive guess never overrides it.
-                Some(s) if s.hooked => {}
+                Some(s) if s.hooked => {
+                    if s.transcript.is_none() {
+                        s.transcript.clone_from(&o.transcript);
+                    }
+                }
                 Some(s) => {
                     if s.state != o.state {
                         s.since = at;
@@ -275,6 +291,9 @@ impl Inbox {
                     }
                     if o.label.is_some() {
                         s.label.clone_from(&o.label);
+                    }
+                    if o.transcript.is_some() {
+                        s.transcript.clone_from(&o.transcript);
                     }
                 }
                 None => self.sessions.push(Session {
@@ -296,6 +315,8 @@ impl Inbox {
                     hooked: false,
                     last_tool: String::new(),
                     label: o.label.clone(),
+                    transcript: o.transcript.clone(),
+                    context: None,
                 }),
             }
         }
@@ -403,8 +424,23 @@ impl Inbox {
                 location: s.location.clone(),
                 model: s.model.clone(),
                 passive: !s.hooked,
+                context: s.context,
             })
             .collect()
+    }
+
+    /// Each session's transcript, to read context use from (outside the lock).
+    pub fn transcripts(&self) -> Vec<(String, AgentKind, PathBuf)> {
+        self.sessions
+            .iter()
+            .filter_map(|s| Some((s.id.clone(), s.agent, s.transcript.clone()?)))
+            .collect()
+    }
+
+    pub fn set_context(&mut self, session_id: &str, context: Option<crate::context::Context>) {
+        if let Some(s) = self.session_mut(session_id) {
+            s.context = context;
+        }
     }
 
     /// One line per row, for tests and debugging.

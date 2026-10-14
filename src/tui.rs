@@ -4,7 +4,7 @@ use crate::event::AgentKind;
 use crate::inbox::{Row, State};
 use crate::socket::{Request, Update};
 use anyhow::{Context, Result};
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::prelude::*;
 use ratatui::widgets::{List, ListItem, ListState, Paragraph};
 use std::io::{BufRead, BufReader, Write};
@@ -78,7 +78,13 @@ fn subscribe(mut stream: UnixStream, tx: mpsc::Sender<Option<Vec<Row>>>) -> Resu
 /// actions come out, so the rules about what a key may do are testable.
 #[derive(Debug, Default)]
 pub struct App {
+    /// Every row from the latest snapshot.
+    all: Vec<Row>,
+    /// The rows on screen: `all` narrowed by the filter. Keys act only on these.
     rows: Vec<Row>,
+    /// The `/` filter, if any, and whether the user is still typing it.
+    filter: Option<String>,
+    typing: bool,
     /// The session the user chose (kept across re-sorts and while it vanishes).
     selected: Option<String>,
     index: Option<usize>,
@@ -103,9 +109,82 @@ pub enum Action {
 impl App {
     /// A new snapshot from the daemon.
     pub fn update(&mut self, rows: Vec<Row>, now: Instant) {
-        self.known_needs = needs_of(&self.rows);
-        self.rows = rows;
+        // Requests hidden by the filter count as known: they never pull the
+        // cursor, and stay known so they don't pull it once the filter is gone.
+        self.known_needs = needs_of(&self.all);
+        self.all = rows;
+        self.refilter(now);
+    }
+
+    /// The rows on screen.
+    pub fn visible(&self) -> &[Row] {
+        &self.rows
+    }
+
+    /// True if `rows` brings a request this inbox hasn't seen, hidden or not.
+    pub fn rings_for(&self, rows: &[Row]) -> bool {
+        new_requests(&self.all, rows) > 0
+    }
+
+    /// True while the user is typing the `/` filter.
+    pub fn typing(&self) -> bool {
+        self.typing
+    }
+
+    /// The `/` filter, if one is set.
+    pub fn filter(&self) -> Option<&str> {
+        self.filter.as_deref()
+    }
+
+    fn refilter(&mut self, now: Instant) {
+        let query = self.filter.as_deref().unwrap_or_default().to_lowercase();
+        self.rows = self
+            .all
+            .iter()
+            .filter(|r| query.is_empty() || matches_filter(r, &query))
+            .cloned()
+            .collect();
         self.reindex(now);
+    }
+
+    /// A key while typing the filter: text only, never an action.
+    fn filter_key(&mut self, key: char, now: Instant) -> Action {
+        match key {
+            '\n' => self.typing = false,
+            '\x1b' => {
+                self.typing = false;
+                self.filter = None;
+            }
+            '\x08' => {
+                if let Some(f) = &mut self.filter {
+                    f.pop();
+                }
+            }
+            c if !c.is_control() => self.filter.get_or_insert_with(String::new).push(c),
+            _ => {}
+        }
+        if self.filter.as_deref() == Some("") && !self.typing {
+            self.filter = None;
+        }
+        self.filter_changed(now);
+        Action::None
+    }
+
+    /// The user changed the filter: rows appearing don't count as new requests,
+    /// and if their row is now hidden the cursor starts over on what's shown.
+    fn filter_changed(&mut self, now: Instant) {
+        self.known_needs = needs_of(&self.all);
+        let query = self.filter.as_deref().unwrap_or_default().to_lowercase();
+        let hidden = |id: &str| {
+            self.all
+                .iter()
+                .find(|r| r.session_id == id)
+                .is_some_and(|r| !query.is_empty() && !matches_filter(r, &query))
+        };
+        if self.selected.as_deref().is_some_and(hidden) {
+            self.selected = None;
+        }
+        self.refilter(now);
     }
 
     pub fn overlay(&self) -> Overlay {
@@ -139,6 +218,9 @@ impl App {
     /// Handles one key: chars as typed, `\n` for Enter, `\x1b` for Esc,
     /// `j`/`k` for the arrows. `width` is the screen width, for what fits.
     pub fn key(&mut self, key: char, width: u16, now: Instant) -> Action {
+        if self.typing {
+            return self.filter_key(key, now);
+        }
         let row = self.index.and_then(|i| self.rows.get(i)).cloned();
         if self.overlay != Overlay::None {
             // An overlay covers the inbox: only closing it does anything.
@@ -149,6 +231,16 @@ impl App {
         }
         match key {
             'q' => Action::Quit,
+            '/' => {
+                self.typing = true;
+                self.filter.get_or_insert_with(String::new);
+                Action::None
+            }
+            '\x1b' if self.filter.is_some() => {
+                self.filter = None;
+                self.filter_changed(now);
+                Action::None
+            }
             '?' => {
                 self.overlay = Overlay::Help;
                 Action::None
@@ -204,8 +296,19 @@ impl App {
             connected,
             overlay: self.overlay,
             status,
+            filter: self.filter.as_deref(),
+            typing: self.typing,
+            hidden: self.all.len() - self.rows.len(),
+            hidden_waiting: waiting(&self.all) - waiting(&self.rows),
         }
     }
+}
+
+/// Rows waiting on the user: a request or a finished turn.
+fn waiting(rows: &[Row]) -> usize {
+    rows.iter()
+        .filter(|r| matches!(r.state, State::NeedsPermission | State::Done))
+        .count()
 }
 
 fn event_loop(
@@ -224,7 +327,7 @@ fn event_loop(
         while let Ok(update) = rx.try_recv() {
             match update {
                 Some(rows) => {
-                    if bell && new_requests(&app.rows, &rows) > 0 {
+                    if bell && app.rings_for(&rows) {
                         use std::io::Write as _;
                         let mut out = std::io::stdout();
                         let _ = out.write_all(b"\x07").and_then(|_| out.flush());
@@ -268,10 +371,15 @@ fn event_loop(
         if key.kind != KeyEventKind::Press {
             continue;
         }
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        if app.typing() && !passes_while_typing(key.code, ctrl) {
+            continue;
+        }
         let ch = match key.code {
             KeyCode::Char(c) => c,
             KeyCode::Enter => '\n',
             KeyCode::Tab => '\t',
+            KeyCode::Backspace => '\x08',
             KeyCode::Esc => '\x1b',
             KeyCode::Down => 'j',
             KeyCode::Up => 'k',
@@ -294,6 +402,16 @@ fn event_loop(
             }
         }
     }
+}
+
+/// While typing the filter, only text, Backspace, Enter and Esc reach it:
+/// arrows would arrive as `j`/`k` and Ctrl-keys as plain letters.
+pub fn passes_while_typing(code: KeyCode, ctrl: bool) -> bool {
+    !ctrl
+        && matches!(
+            code,
+            KeyCode::Char(_) | KeyCode::Backspace | KeyCode::Enter | KeyCode::Esc
+        )
 }
 
 /// The row to select after an update:
@@ -341,6 +459,18 @@ fn need(r: &Row) -> Need {
     (r.session_id.clone(), r.request_id)
 }
 
+/// Case-insensitive substring match; `query` is already lowercase.
+fn matches_filter(r: &Row, query: &str) -> bool {
+    [
+        r.project.as_str(),
+        r.agent.name(),
+        r.detail.as_str(),
+        r.cwd.as_str(),
+    ]
+    .iter()
+    .any(|field| field.to_lowercase().contains(query))
+}
+
 /// The permission waits in `rows`.
 fn needs_of(rows: &[Row]) -> Vec<Need> {
     rows.iter()
@@ -382,6 +512,7 @@ pub enum Overlay {
 }
 
 /// Everything one frame shows.
+#[derive(Default)]
 pub struct View<'a> {
     pub rows: &'a [Row],
     pub selected: Option<usize>,
@@ -389,6 +520,12 @@ pub struct View<'a> {
     pub overlay: Overlay,
     /// A transient message (e.g. the result of a jump) shown in place of the footer.
     pub status: Option<&'a str>,
+    /// The `/` filter, and whether it's still being typed.
+    pub filter: Option<&'a str>,
+    pub typing: bool,
+    /// Rows the filter hides, and how many of those wait on the user.
+    pub hidden: usize,
+    pub hidden_waiting: usize,
 }
 
 pub fn draw(f: &mut Frame, view: &View) {
@@ -400,12 +537,11 @@ pub fn draw(f: &mut Frame, view: &View) {
     ])
     .areas(f.area());
 
-    let waiting = rows
-        .iter()
-        .filter(|r| matches!(r.state, State::NeedsPermission | State::Done))
-        .count();
+    // Counts cover hidden rows too, so a filter never hides that something waits.
+    let waiting = waiting(rows) + view.hidden_waiting;
+    let total = rows.len() + view.hidden;
     let status = if view.connected {
-        Span::raw(format!(" {} agents · {waiting} waiting on you", rows.len()))
+        Span::raw(format!(" {total} agents · {waiting} waiting on you"))
     } else {
         Span::styled(
             " disconnected from daemon · restart tapin",
@@ -416,11 +552,23 @@ pub fn draw(f: &mut Frame, view: &View) {
         Paragraph::new(Line::from(vec![
             Span::styled(" tapin ", Style::new().bold().reversed()),
             status,
+            match view.filter.filter(|f| !f.is_empty()) {
+                Some(f) => Span::styled(
+                    format!(" · filter: {f} · {} hidden", view.hidden),
+                    Style::new().fg(Color::Cyan),
+                ),
+                None => Span::raw(""),
+            },
         ])),
         header,
     );
 
-    if rows.is_empty() {
+    if rows.is_empty() && view.hidden > 0 {
+        f.render_widget(
+            Paragraph::new("\n  No session matches the filter. Esc clears it.").dim(),
+            body,
+        );
+    } else if rows.is_empty() {
         f.render_widget(
             Paragraph::new("\n  No agent sessions yet. Run `tapin init`, then start an agent.")
                 .dim(),
@@ -443,16 +591,18 @@ pub fn draw(f: &mut Frame, view: &View) {
     }
 
     let footer_text = match view.status {
+        _ if view.typing => Paragraph::new(format!(
+            " /{}▏  ⏎ keep · esc clear",
+            view.filter.unwrap_or_default()
+        ))
+        .style(Style::new().fg(Color::Cyan)),
         Some(message) => Paragraph::new(format!(" {message}")).style(Style::new().fg(Color::Cyan)),
         // Nothing reports through hooks yet: say what installing them adds.
         None if !rows.is_empty() && rows.iter().all(|r| r.passive) => Paragraph::new(
             " passive mode (no hooks) · run `tapin init` to approve here and get live status",
         )
         .style(Style::new().fg(Color::Yellow)),
-        None => {
-            Paragraph::new(" ⏎ jump · ⇥ next waiting · y/n answer · d details · ? help · q quit")
-                .dim()
-        }
+        None => Paragraph::new(" ⏎ jump · ⇥ next · / filter · y/n answer · ? help · q quit").dim(),
     };
     f.render_widget(footer_text, footer);
 
@@ -492,9 +642,10 @@ fn help_lines() -> Vec<Line<'static>> {
         ("y", "approve the selected permission request"),
         ("n", "deny it"),
         ("d", "details: full message, input, where it runs"),
+        ("/", "filter by project, agent, detail or folder"),
         ("j/k ↑/↓", "move"),
         ("?", "this help"),
-        ("Esc", "close this view"),
+        ("Esc", "close this view, or clear the filter"),
         ("q", "quit (the daemon keeps running)"),
     ];
     keys.iter()
@@ -587,6 +738,28 @@ fn glyph_style(agent: AgentKind) -> Style {
     }
 }
 
+/// `ctx 64%` when the window is known (dim, yellow from 80%, red from 95%),
+/// else the size, `ctx 132k`; nothing when unknown.
+fn context_span(context: Option<crate::context::Context>) -> Span<'static> {
+    let Some(c) = context else {
+        return Span::raw("");
+    };
+    match c.percent() {
+        Some(p) => {
+            let style = match p {
+                95.. => Style::new().fg(Color::Red),
+                80.. => Style::new().fg(Color::Yellow),
+                _ => Style::new().dim(),
+            };
+            Span::styled(format!("  ctx {p}%"), style)
+        }
+        None if c.used >= 1000 => {
+            Span::styled(format!("  ctx {}k", c.used / 1000), Style::new().dim())
+        }
+        None => Span::raw(""),
+    }
+}
+
 fn row_item(r: &Row, selected: bool, width: u16) -> ListItem<'static> {
     let (label, color) = match r.state {
         State::NeedsPermission => ("NEEDS", Color::Red),
@@ -601,6 +774,7 @@ fn row_item(r: &Row, selected: bool, width: u16) -> ListItem<'static> {
         Span::styled(format!("{:<14} ", r.project), Style::new().bold()),
         Span::raw(r.detail.clone()),
         Span::styled(format!("  {}", age(r.age_secs)), Style::new().dim()),
+        context_span(r.context),
     ])];
     // Show exactly what `y` would approve, not just the one-line summary.
     if selected && r.state == State::NeedsPermission {

@@ -25,6 +25,7 @@ fn screen_with(
         connected: true,
         overlay,
         status,
+        ..Default::default()
     };
     t.draw(|f| tapin::tui::draw(f, &view)).unwrap();
     let buf = t.backend().buffer().clone();
@@ -242,4 +243,66 @@ fn each_agent_has_its_own_glyph_and_the_columns_line_up() {
 fn details_show_the_agent_glyph() {
     let text = screen_with(&[done_row()], Overlay::Details, None, 70, 16);
     assert!(text.contains("✻ claude"), "screen:\n{text}");
+}
+
+#[test]
+fn a_filter_shows_in_the_header_and_hidden_requests_still_count() {
+    let shown = Row {
+        session_id: "b".into(),
+        state: State::Done,
+        project: "docs-site".into(),
+        ..Default::default()
+    };
+    let mut t = Terminal::new(TestBackend::new(90, 6)).unwrap();
+    let view = View {
+        rows: std::slice::from_ref(&shown),
+        selected: Some(0),
+        connected: true,
+        filter: Some("docs"),
+        typing: true,
+        hidden: 2,
+        hidden_waiting: 1,
+        ..Default::default()
+    };
+    t.draw(|f| tapin::tui::draw(f, &view)).unwrap();
+    let text: String = format!("{:?}", t.backend().buffer());
+    assert!(text.contains("3 agents · 2 waiting on you"), "{text}");
+    assert!(text.contains("filter: docs · 2 hidden"), "{text}");
+    assert!(
+        text.contains("/docs"),
+        "typing prompt in the footer: {text}"
+    );
+}
+
+#[test]
+fn rows_show_context_as_a_percent_only_when_the_window_is_known() {
+    use tapin::context::Context;
+    let row = |id: &str, context| Row {
+        session_id: id.into(),
+        project: id.into(),
+        context,
+        ..done_row()
+    };
+    let rows = [
+        row(
+            "pct",
+            Some(Context {
+                used: 640,
+                window: Some(1000),
+            }),
+        ),
+        row(
+            "tokens",
+            Some(Context {
+                used: 132_302,
+                window: None,
+            }),
+        ),
+        row("none", None),
+    ];
+    let text = screen(&rows, 90, 7);
+    let lines: Vec<&str> = text.lines().collect();
+    assert!(lines[1].contains("ctx 64%"), "{text}");
+    assert!(lines[2].contains("ctx 132k"), "{text}");
+    assert!(!lines[3].contains("ctx"), "{text}");
 }

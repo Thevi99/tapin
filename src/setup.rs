@@ -133,11 +133,17 @@ const READ_ONLY_TOOLS: &[&str] = &["Read", "Glob", "Grep", "LS", "WebSearch", "T
 
 /// `$CLAUDE_CONFIG_DIR/settings.json`, else `~/.claude/settings.json`.
 pub fn claude_settings_path() -> Result<PathBuf> {
-    let dir = match std::env::var_os("CLAUDE_CONFIG_DIR") {
-        Some(d) => PathBuf::from(d),
-        None => PathBuf::from(std::env::var_os("HOME").context("HOME is not set")?).join(".claude"),
-    };
-    Ok(dir.join("settings.json"))
+    Ok(claude_dir()
+        .context("HOME is not set")?
+        .join("settings.json"))
+}
+
+/// Claude Code's config dir: `$CLAUDE_CONFIG_DIR`, else `~/.claude`.
+pub fn claude_dir() -> Option<PathBuf> {
+    match std::env::var_os("CLAUDE_CONFIG_DIR") {
+        Some(d) => Some(PathBuf::from(d)),
+        None => Some(PathBuf::from(std::env::var_os("HOME")?).join(".claude")),
+    }
 }
 
 /// The hook command, with tapin's absolute path: agents launched from an IDE or
