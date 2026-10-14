@@ -56,6 +56,14 @@ fn later_events_without_location_keep_the_known_one() {
         &fixture("basic-turn", "01-SessionStart.json"),
         &[("TERM_PROGRAM", "WezTerm"), ("WEZTERM_PANE", "3")],
     );
+    // Each hook is its own connection, handled on its own thread: let the
+    // first event land before sending the second, or they can race.
+    tui.wait_for(|r| {
+        r.as_array().is_some_and(|a| {
+            a.first()
+                .is_some_and(|x| x["location"]["wezterm_pane"] == "3")
+        })
+    });
     hook_with_env(&d.socket, &fixture("basic-turn", "09-Stop.json"), &[]);
     let rows = tui.wait_for(|r| {
         r.as_array()
