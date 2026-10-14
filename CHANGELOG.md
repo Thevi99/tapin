@@ -4,6 +4,8 @@
 
 ### Added
 - **Claude background sessions open with Enter.** Sessions from `claude agents` have no terminal of their own. In tmux, Enter opens a new window in the session's folder running `claude attach <id>`; elsewhere, tapin shows that command. The row says so instead of "answer in the agent's terminal".
+- **`x` stops a Claude background session** (`claude stop <id>`; its conversation is kept and `claude attach` reopens it). It asks first: `y` stops, any other key cancels, and the prompt expires after 5 seconds. To delete a session for good, use `claude rm <id>` yourself.
+- Outside tmux on macOS, Enter on a background session opens a new iTerm2 or Terminal window running `claude attach <id>`.
 
 ## 0.2.0 - 2026-10-14
 

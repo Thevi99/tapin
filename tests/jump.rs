@@ -313,3 +313,15 @@ fn a_denied_automation_permission_says_where_to_allow_it() {
     );
     assert!(msg.contains("Automation"), "{msg}");
 }
+
+#[test]
+fn stopping_a_background_session_runs_claude_stop_with_a_plain_id_only() {
+    use tapin::jump::stop_plan;
+    assert_eq!(
+        stop_plan("deec2c5d"),
+        Some(vec!["claude".to_string(), "stop".into(), "deec2c5d".into()])
+    );
+    for id in ["-x", "a b", "", "a;rm"] {
+        assert_eq!(stop_plan(id), None, "{id:?}");
+    }
+}

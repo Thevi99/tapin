@@ -40,6 +40,43 @@ pub enum Jump {
     Explain(String),
 }
 
+/// A background session id safe to hand to `claude` and a shell: letters,
+/// digits, `-` and `_`, not empty and not option-like.
+fn plain_id(id: &str) -> bool {
+    !id.is_empty()
+        && !id.starts_with('-')
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+/// The command that stops a Claude background session (its conversation is
+/// kept; `claude attach` reopens it), if the id is plain.
+pub fn stop_plan(id: &str) -> Option<Vec<String>> {
+    plain_id(id).then(|| vec!["claude".into(), "stop".into(), id.to_string()])
+}
+
+/// Runs `stop_plan` and says what happened.
+pub fn stop(id: &str) -> String {
+    let Some(cmd) = stop_plan(id) else {
+        return "That session id looks wrong; stop it from `claude agents`.".into();
+    };
+    match Command::new(&cmd[0]).args(&cmd[1..]).output() {
+        Ok(o) if o.status.success() => format!("Stopped {id}. `claude attach {id}` reopens it."),
+        Ok(o) => {
+            let err = String::from_utf8_lossy(&o.stderr);
+            let out = String::from_utf8_lossy(&o.stdout);
+            let why = [err.trim(), out.trim()]
+                .into_iter()
+                .find(|s| !s.is_empty())
+                .map(String::from)
+                .unwrap_or_else(|| o.status.to_string());
+            format!("Couldn't stop {id}: {why}")
+        }
+        Err(e) => format!("Couldn't run claude: {e}"),
+    }
+}
+
 /// What to tell the user when a jump command failed.
 pub fn failure_message(stderr: &str) -> String {
     let err = stderr.trim();
@@ -121,11 +158,7 @@ pub fn jump_plan(loc: &Location, cwd: &str, here: &Here, client: Option<&str>) -
     // A Claude background session has no terminal: open it with
     // `claude attach`, in a new window of the tmux the TUI runs in.
     if let Some(id) = &loc.claude_background {
-        let plain = !id.is_empty()
-            && !id.starts_with('-')
-            && id
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+        let plain = plain_id(id);
         if !plain {
             return Jump::Explain(
                 "It's a Claude background session: open it from `claude agents`.".into(),

@@ -89,6 +89,8 @@ pub struct App {
     grouped: bool,
     /// The daemon won't take answers from this inbox (#12).
     read_only: bool,
+    /// `x` pressed on a background session: (attach id, name, when), awaiting `y`.
+    confirm_stop: Option<(String, String, Instant)>,
     /// The session the user chose (kept across re-sorts and while it vanishes).
     selected: Option<String>,
     index: Option<usize>,
@@ -108,6 +110,8 @@ pub enum Action {
     Quit,
     Decide(u64, bool),
     Jump(Box<Row>),
+    /// Stop this Claude background session (`claude stop <id>`).
+    Stop(String),
 }
 
 impl App {
@@ -117,6 +121,16 @@ impl App {
         // cursor, and stay known so they don't pull it once the filter is gone.
         self.known_needs = needs_of(&self.all);
         self.all = rows;
+        // Nothing left to stop if that session is gone.
+        if let Some((id, _, _)) = &self.confirm_stop {
+            let present = self
+                .all
+                .iter()
+                .any(|r| r.location.claude_background.as_deref() == Some(id.as_str()));
+            if !present {
+                self.confirm_stop = None;
+            }
+        }
         self.refilter(now);
     }
 
@@ -133,6 +147,11 @@ impl App {
     /// The daemon said this inbox may not answer requests.
     pub fn set_read_only(&mut self, read_only: bool) {
         self.read_only = read_only;
+    }
+
+    /// The session `x` asked to stop, while waiting for `y`.
+    pub fn confirming_stop(&self) -> Option<&str> {
+        self.confirm_stop.as_ref().map(|(_, name, _)| name.as_str())
     }
 
     /// True when rows are grouped by folder (`g`).
@@ -235,6 +254,17 @@ impl App {
     /// Handles one key: chars as typed, `\n` for Enter, `\x1b` for Esc,
     /// `j`/`k` for the arrows. `width` is the screen width, for what fits.
     pub fn key(&mut self, key: char, width: u16, now: Instant) -> Action {
+        // A pending stop takes the next key: `y` stops, anything else cancels.
+        // A prompt left open expires, and the late key does nothing: it may
+        // have been meant for something else (like approving a request).
+        if let Some((id, _, at)) = self.confirm_stop.take() {
+            let fresh = now.duration_since(at) < STOP_PROMPT_FOR;
+            return if key == 'y' && fresh {
+                Action::Stop(id)
+            } else {
+                Action::None
+            };
+        }
         if self.typing {
             return self.filter_key(key, now);
         }
@@ -248,6 +278,18 @@ impl App {
         }
         match key {
             'q' => Action::Quit,
+            'x' => {
+                // Like `y`: ignored right after the cursor moved under the user.
+                let settled = self
+                    .cursor_since
+                    .is_some_and(|since| now.duration_since(since) >= SETTLE);
+                let target = row.as_ref().filter(|_| settled).and_then(|r| {
+                    let id = r.location.claude_background.clone()?;
+                    Some((id, r.project.clone(), now))
+                });
+                self.confirm_stop = target;
+                Action::None
+            }
             'g' => {
                 self.grouped = !self.grouped;
                 self.refilter(now);
@@ -326,6 +368,12 @@ impl App {
             hidden: self.all.len() - self.rows.len(),
             hidden_waiting: waiting(&self.all) - waiting(&self.rows),
             hooks: &[],
+            // Shown only while it can still be answered.
+            confirm_stop: self
+                .confirm_stop
+                .as_ref()
+                .filter(|(_, _, at)| at.elapsed() < STOP_PROMPT_FOR)
+                .map(|(id, name, _)| (id.as_str(), name.as_str())),
         }
     }
 }
@@ -435,6 +483,13 @@ fn event_loop(
                 let tx = jump_tx.clone();
                 std::thread::spawn(move || {
                     let _ = tx.send(crate::jump::jump(&row));
+                });
+            }
+            Action::Stop(id) => {
+                status = Some((format!("Stopping {id}…"), Instant::now()));
+                let tx = jump_tx.clone();
+                std::thread::spawn(move || {
+                    let _ = tx.send(crate::jump::stop(&id));
                 });
             }
         }
@@ -578,6 +633,9 @@ pub fn new_requests(before: &[Row], now: &[Row]) -> usize {
 /// How long a status message (e.g. a jump result) stays in the footer.
 const STATUS_FOR: Duration = Duration::from_secs(5);
 
+/// How long a stop prompt waits for its `y`.
+const STOP_PROMPT_FOR: Duration = Duration::from_secs(5);
+
 /// How long the row under the cursor must stay put before `y`/`n` count.
 const SETTLE: Duration = Duration::from_millis(500);
 
@@ -617,6 +675,8 @@ pub struct View<'a> {
     /// Agents whose settings already run tapin's hooks (sessions started
     /// before `tapin init` still show passively until restarted).
     pub hooks: &'a [AgentKind],
+    /// The background session `x` asked to stop (id, name), awaiting `y`.
+    pub confirm_stop: Option<(&'a str, &'a str)>,
     /// Rows the filter hides, and how many of those wait on the user.
     pub hidden: usize,
     pub hidden_waiting: usize,
@@ -705,6 +765,14 @@ pub fn draw(f: &mut Frame, view: &View) {
     }
 
     let footer_text = match view.status {
+        _ if view.confirm_stop.is_some() => {
+            let (id, name) = view.confirm_stop.unwrap_or_default();
+            Paragraph::new(format!(
+                " Stop {name} ({id})? Its conversation is kept (claude attach reopens it). \
+                 y stops · any other key cancels"
+            ))
+        }
+        .style(Style::new().fg(Color::Yellow).bold()),
         _ if view.typing => Paragraph::new(format!(
             " /{}▏  ⏎ keep · esc clear",
             view.filter.unwrap_or_default()
@@ -765,6 +833,10 @@ fn help_lines() -> Vec<Line<'static>> {
         ("d", "details: full message, input, where it runs"),
         ("/", "filter by project, agent, detail or folder"),
         ("g", "group rows by folder (again to ungroup)"),
+        (
+            "x",
+            "stop a Claude background session (asks first; claude rm deletes for good)",
+        ),
         ("j/k ↑/↓", "move"),
         ("?", "this help"),
         ("Esc", "close this view, or clear the filter"),
@@ -924,7 +996,9 @@ fn row_item(r: &Row, selected: bool, width: u16, hooked: bool) -> ListItem<'stat
         } else if r.request_id.is_some() {
             "      n deny (approve in the agent, where you can see all of it)".into()
         } else if let Some(id) = background {
-            format!("      a Claude background session · Enter opens it (claude attach {id})")
+            format!(
+                "      a Claude background session · Enter opens it (claude attach {id}) · x stops it"
+            )
         } else if r.passive && hooked {
             "      answer in the agent's terminal · this session started before tapin's \
              hooks were installed; new ones can be answered here"

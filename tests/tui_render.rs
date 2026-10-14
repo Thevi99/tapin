@@ -427,3 +427,22 @@ fn a_background_session_says_enter_opens_it() {
     assert!(text.contains("claude attach deec2c5d"), "{text}");
     assert!(!text.contains("started before"), "{text}");
 }
+
+#[test]
+fn stopping_asks_in_the_footer_and_background_rows_mention_x() {
+    let mut row = passive_request();
+    row.location.claude_background = Some("deec2c5d".into());
+    let rows = [row];
+    let mut t = Terminal::new(TestBackend::new(130, 8)).unwrap();
+    let view = View {
+        rows: &rows,
+        selected: Some(0),
+        connected: true,
+        confirm_stop: Some(("deec2c5d", "old-session")),
+        ..Default::default()
+    };
+    t.draw(|f| tapin::tui::draw(f, &view)).unwrap();
+    let text = format!("{:?}", t.backend().buffer());
+    assert!(text.contains("Stop old-session (deec2c5d)?"), "{text}");
+    assert!(text.contains("x stops it"), "{text}");
+}

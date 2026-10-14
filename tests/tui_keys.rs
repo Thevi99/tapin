@@ -435,3 +435,120 @@ fn a_read_only_inbox_never_sends_answers() {
     app.set_read_only(true);
     assert_eq!(app.key('y', WIDE, Instant::now()), Action::None);
 }
+
+fn background_row(id: &str, attach: &str, state: State) -> Row {
+    let mut r = Row {
+        project: "git status check".into(),
+        passive: true,
+        ..with_state(id, state)
+    };
+    r.location.claude_background = Some(attach.into());
+    r
+}
+
+#[test]
+fn x_asks_before_stopping_a_background_session_and_y_confirms() {
+    let mut app = settled(vec![background_row(
+        "s1",
+        "deec2c5d",
+        State::NeedsPermission,
+    )]);
+    assert_eq!(app.key('x', WIDE, Instant::now()), Action::None);
+    assert_eq!(app.confirming_stop(), Some("git status check"));
+    assert_eq!(
+        app.key('y', WIDE, Instant::now()),
+        Action::Stop("deec2c5d".into())
+    );
+    assert_eq!(app.confirming_stop(), None);
+}
+
+#[test]
+fn any_other_key_cancels_the_stop_and_does_nothing_else() {
+    let mut app = settled(vec![
+        background_row("s1", "deec2c5d", State::Done),
+        needs("a", 7),
+    ]);
+    // The cursor starts on the request; move to the background session and
+    // let it settle there.
+    app.key('k', WIDE, Instant::now());
+    let later = Instant::now() + Duration::from_secs(1);
+    app.key('x', WIDE, later);
+    assert!(app.confirming_stop().is_some());
+    for k in ['n', '\x1b', 'q', 'j'] {
+        assert_eq!(app.key(k, WIDE, later), Action::None, "{k:?}");
+        assert_eq!(app.confirming_stop(), None);
+        app.key('x', WIDE, later);
+    }
+}
+
+#[test]
+fn x_on_a_row_that_is_not_a_background_session_does_nothing() {
+    let mut app = settled(vec![needs("a", 7)]);
+    assert_eq!(app.key('x', WIDE, Instant::now()), Action::None);
+    assert_eq!(app.confirming_stop(), None);
+}
+
+#[test]
+fn x_right_after_the_cursor_moved_does_nothing() {
+    // A snapshot may have just pulled the cursor onto a different row.
+    let mut app = App::default();
+    let now = Instant::now();
+    app.update(vec![background_row("s1", "deec2c5d", State::Done)], now);
+    assert_eq!(app.key('x', WIDE, now), Action::None);
+    assert_eq!(app.confirming_stop(), None);
+}
+
+#[test]
+fn a_stop_prompt_left_open_expires_and_the_late_key_does_nothing() {
+    let mut app = settled(vec![background_row("s1", "deec2c5d", State::Done)]);
+    let now = Instant::now();
+    app.key('x', WIDE, now);
+    assert_eq!(
+        app.key('y', WIDE, now + Duration::from_secs(10)),
+        Action::None
+    );
+    assert_eq!(app.confirming_stop(), None);
+}
+
+#[test]
+fn the_stop_prompt_ends_when_its_session_goes_away_and_survives_a_reorder() {
+    let bg = background_row("s1", "deec2c5d", State::Done);
+    let mut app = settled(vec![bg.clone()]);
+    app.key('x', WIDE, Instant::now());
+    // Rows reorder: the captured id still is what y stops.
+    app.update(vec![needs("a", 7), bg.clone()], Instant::now());
+    assert_eq!(
+        app.key('y', WIDE, Instant::now()),
+        Action::Stop("deec2c5d".into())
+    );
+    // Asked again, then the session vanishes: nothing left to stop.
+    app.key('k', WIDE, Instant::now() + Duration::from_secs(1));
+    let mut app = settled(vec![bg]);
+    app.key('x', WIDE, Instant::now());
+    app.update(vec![needs("a", 7)], Instant::now());
+    assert_eq!(app.confirming_stop(), None);
+}
+
+#[test]
+fn x_while_typing_a_filter_is_text_and_inside_help_does_nothing() {
+    let mut app = settled(vec![background_row("s1", "deec2c5d", State::Done)]);
+    typed(&mut app, "/x");
+    assert_eq!(app.filter(), Some("x"));
+    assert_eq!(app.confirming_stop(), None);
+    let mut app = settled(vec![background_row("s1", "deec2c5d", State::Done)]);
+    app.key('?', WIDE, Instant::now());
+    app.key('x', WIDE, Instant::now());
+    assert_eq!(app.confirming_stop(), None);
+}
+
+#[test]
+fn an_expired_stop_prompt_leaves_the_screen() {
+    let mut app = App::default();
+    let long_ago = Instant::now() - Duration::from_secs(30);
+    app.update(
+        vec![background_row("s1", "deec2c5d", State::Done)],
+        long_ago,
+    );
+    app.key('x', WIDE, long_ago + Duration::from_secs(10));
+    assert!(app.view(true, None).confirm_stop.is_none());
+}
