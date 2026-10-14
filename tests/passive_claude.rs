@@ -151,9 +151,54 @@ fn passive_claude_rows_can_be_jumped_to_by_tty() {
         label: Some("dev-37".into()),
         tty: Some("/dev/ttys004".into()),
         transcript: None,
+        background: None,
     }];
     inbox.observe(AgentKind::Claude, obs, 0);
     let rows = inbox.rows(1);
     assert_eq!(rows[0].project, "dev-37");
     assert_eq!(rows[0].location.tty.as_deref(), Some("/dev/ttys004"));
+}
+
+#[test]
+fn background_sessions_carry_the_id_claude_attach_takes() {
+    let obs = parse_agents(&agents_json()).unwrap();
+    let bg: Vec<_> = obs.iter().filter(|o| o.background.is_some()).collect();
+    assert!(!bg.is_empty());
+    let mut inbox = Inbox::default();
+    inbox.observe(AgentKind::Claude, obs.clone(), 0);
+    let rows = inbox.rows(1);
+    let row = rows
+        .iter()
+        .find(|r| r.session_id == bg[0].session_id)
+        .unwrap();
+    assert_eq!(row.location.claude_background, bg[0].background);
+}
+
+#[test]
+fn a_background_session_whose_hooks_reported_first_still_opens_with_attach() {
+    let mut inbox = Inbox::default();
+    let obs = parse_agents(&agents_json()).unwrap();
+    let bg = obs.iter().find(|o| o.background.is_some()).unwrap().clone();
+    // Its hook reports first, under the same session id.
+    let start = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/claude/basic-turn/01-SessionStart.json"),
+    )
+    .unwrap();
+    let mut raw: serde_json::Value = serde_json::from_str(&start).unwrap();
+    raw["session_id"] = bg.session_id.clone().into();
+    inbox.apply(tapin::adapters::claude::parse(&raw).unwrap(), 0);
+    inbox.observe(AgentKind::Claude, obs, 1);
+    let row = inbox.row(&bg.session_id, 2).unwrap();
+    assert_eq!(row.location.claude_background, bg.background);
+}
+
+#[test]
+fn merging_a_location_never_forgets_the_background_id() {
+    let mut loc = tapin::location::Location {
+        claude_background: Some("bg01".into()),
+        ..Default::default()
+    };
+    loc.merge(&tapin::location::Location::default());
+    assert_eq!(loc.claude_background.as_deref(), Some("bg01"));
 }

@@ -47,7 +47,9 @@ pub fn parse_agents(json: &str) -> anyhow::Result<Vec<Observation>> {
                     _ => return None,
                 }
             };
+            let background = (e.kind == "background").then(|| e.id.clone()).flatten();
             Some(Observation {
+                background,
                 session_id: e.session_id.or(e.id)?,
                 cwd: e.cwd,
                 state,

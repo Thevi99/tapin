@@ -918,19 +918,21 @@ fn row_item(r: &Row, selected: bool, width: u16, hooked: bool) -> ListItem<'stat
                 Style::new().fg(Color::Red),
             )),
         }
-        let hint = if r.request_id.is_some() && shown.is_some() {
-            "      y approve · n deny"
+        let background = r.location.claude_background.as_deref();
+        let hint: String = if r.request_id.is_some() && shown.is_some() {
+            "      y approve · n deny".into()
         } else if r.request_id.is_some() {
-            "      n deny (approve in the agent, where you can see all of it)"
+            "      n deny (approve in the agent, where you can see all of it)".into()
+        } else if let Some(id) = background {
+            format!("      a Claude background session · Enter opens it (claude attach {id})")
+        } else if r.passive && hooked {
+            "      answer in the agent's terminal · this session started before tapin's \
+             hooks were installed; new ones can be answered here"
+                .into()
+        } else if r.passive {
+            "      answer in the agent's terminal · run `tapin init` to answer here".into()
         } else {
-            if r.passive && hooked {
-                "      answer in the agent's terminal · this session started before tapin's \
-                 hooks were installed; new ones can be answered here"
-            } else if r.passive {
-                "      answer in the agent's terminal · run `tapin init` to answer here"
-            } else {
-                "      answer in the agent's terminal (tapin's hook is no longer waiting)"
-            }
+            "      answer in the agent's terminal (tapin's hook is no longer waiting)".into()
         };
         lines.push(Line::styled(hint, Style::new().dim()));
         if r.request_id.is_some() && r.agent.prompt_waits_for_hook() {

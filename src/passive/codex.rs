@@ -149,6 +149,7 @@ pub fn observe(procs: &[Proc], sessions_root: &Path) -> Vec<Observation> {
                 label: None,
                 tty: Some(p.tty.clone()),
                 transcript: own.map(|r| r.path.clone()),
+                background: None,
             }
         })
         .collect()

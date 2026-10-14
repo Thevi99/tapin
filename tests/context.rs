@@ -255,6 +255,7 @@ fn a_hooked_session_keeps_the_hooks_transcript_over_a_passive_guess() {
         label: None,
         tty: None,
         transcript: Some("/from/passive.jsonl".into()),
+        background: None,
     };
     inbox.observe(AgentKind::Claude, vec![obs], 1);
     assert_eq!(

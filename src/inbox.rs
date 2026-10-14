@@ -278,6 +278,11 @@ impl Inbox {
                     if s.transcript.is_none() {
                         s.transcript.clone_from(&o.transcript);
                     }
+                    // `claude agents` is the authority on a session being a
+                    // background one (it has no terminal of its own).
+                    if o.background.is_some() {
+                        s.location.claude_background.clone_from(&o.background);
+                    }
                 }
                 Some(s) => {
                     if s.state != o.state {
@@ -288,6 +293,9 @@ impl Inbox {
                     s.location.agent_pid = o.pid.or(s.location.agent_pid);
                     if o.tty.is_some() {
                         s.location.tty.clone_from(&o.tty);
+                    }
+                    if o.background.is_some() {
+                        s.location.claude_background.clone_from(&o.background);
                     }
                     if o.label.is_some() {
                         s.label.clone_from(&o.label);
@@ -309,6 +317,7 @@ impl Inbox {
                     location: Location {
                         agent_pid: o.pid,
                         tty: o.tty.clone(),
+                        claude_background: o.background.clone(),
                         ..Location::default()
                     },
                     model: None,

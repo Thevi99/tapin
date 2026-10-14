@@ -418,3 +418,12 @@ fn with_hooks_installed_a_passive_row_isnt_told_to_run_init_again() {
     let missing = screen_hooks(&rows, &[]);
     assert!(missing.contains("tapin init"), "{missing}");
 }
+
+#[test]
+fn a_background_session_says_enter_opens_it() {
+    let mut row = passive_request();
+    row.location.claude_background = Some("deec2c5d".into());
+    let text = screen_hooks(&[row], &[AgentKind::Claude]);
+    assert!(text.contains("claude attach deec2c5d"), "{text}");
+    assert!(!text.contains("started before"), "{text}");
+}

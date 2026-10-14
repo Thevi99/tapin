@@ -26,6 +26,10 @@ pub struct Location {
     /// it dies or its pid is reused.
     pub agent_pid: Option<u32>,
     pub agent_start: Option<u64>,
+    /// A Claude Code background session's id: it has no terminal of its own
+    /// and is opened with `claude attach <id>`.
+    #[serde(default)]
+    pub claude_background: Option<String>,
 }
 
 impl Location {
@@ -49,6 +53,7 @@ impl Location {
             // Inside tmux the pane is the better key than the tty.
             tty: found.tty.filter(|_| tmux_pane.is_none()),
             tmux_pane,
+            claude_background: None,
         }
     }
 
@@ -65,6 +70,7 @@ impl Location {
         take(&mut self.term_program, &newer.term_program);
         take(&mut self.wezterm_pane, &newer.wezterm_pane);
         take(&mut self.tty, &newer.tty);
+        take(&mut self.claude_background, &newer.claude_background);
         if newer.agent_pid.is_some() {
             self.agent_pid = newer.agent_pid;
             self.agent_start = newer.agent_start;

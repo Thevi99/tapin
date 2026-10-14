@@ -80,6 +80,34 @@ end run"#;
 /// used when the TUI is not inside that server.
 pub fn jump_plan(loc: &Location, cwd: &str, here: &Here, client: Option<&str>) -> Jump {
     let cmd = |parts: &[&str]| parts.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    // A Claude background session has no terminal: open it with
+    // `claude attach`, in a new window of the tmux the TUI runs in.
+    if let Some(id) = &loc.claude_background {
+        let plain = !id.is_empty()
+            && !id.starts_with('-')
+            && id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+        if !plain {
+            return Jump::Explain(
+                "It's a Claude background session: open it from `claude agents`.".into(),
+            );
+        }
+        return match &here.tmux_socket {
+            Some(sock) => {
+                let mut run = cmd(&["tmux", "-S", sock, "new-window"]);
+                // tmux expands #{…} and #(…) in -c: only a plain absolute path goes.
+                if cwd.starts_with('/') && !cwd.contains('#') {
+                    run.extend(cmd(&["-c", cwd]));
+                }
+                run.extend(cmd(&["claude", "attach", id]));
+                Jump::Run(vec![run])
+            }
+            None => Jump::Explain(format!(
+                "It's a Claude background session. Open it with: claude attach {id}"
+            )),
+        };
+    }
     if let (Some(sock), Some(pane)) = (&loc.tmux_socket, &loc.tmux_pane) {
         if here.tmux_socket.as_deref() == Some(sock.as_str()) {
             return Jump::Run(vec![cmd(&[

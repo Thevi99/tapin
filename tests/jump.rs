@@ -163,3 +163,72 @@ fn a_tty_that_is_not_a_device_path_is_never_passed_on() {
         None,
     ));
 }
+
+fn background(id: &str) -> Location {
+    Location {
+        claude_background: Some(id.into()),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn a_claude_background_session_opens_with_claude_attach_in_a_new_tmux_window() {
+    let here = Here {
+        tmux_socket: Some("/tmp/tmux-501/default".into()),
+        macos: true,
+    };
+    let cmds = run(jump_plan(&background("deec2c5d"), "/w/api", &here, None));
+    assert_eq!(
+        cmds,
+        vec![vec![
+            "tmux",
+            "-S",
+            "/tmp/tmux-501/default",
+            "new-window",
+            "-c",
+            "/w/api",
+            "claude",
+            "attach",
+            "deec2c5d"
+        ]]
+    );
+}
+
+#[test]
+fn outside_tmux_it_says_how_to_open_a_background_session() {
+    let here = Here {
+        tmux_socket: None,
+        macos: true,
+    };
+    let msg = explain(jump_plan(&background("deec2c5d"), "/w/api", &here, None));
+    assert!(msg.contains("claude attach deec2c5d"), "{msg}");
+}
+
+#[test]
+fn an_odd_background_id_is_never_passed_to_a_command() {
+    let here = Here {
+        tmux_socket: Some("/tmp/tmux-501/default".into()),
+        macos: true,
+    };
+    for id in ["-x", "a b", "a;rm", ""] {
+        let j = jump_plan(&background(id), "/w/api", &here, None);
+        assert!(matches!(j, Jump::Explain(_)), "{id:?}: {j:?}");
+    }
+}
+
+#[test]
+fn a_folder_tmux_would_expand_is_never_passed_to_it() {
+    // tmux expands #{…} and #(…) in -c, so such a path must not reach it.
+    let here = Here {
+        tmux_socket: Some("/tmp/tmux-501/default".into()),
+        macos: true,
+    };
+    for cwd in ["/w/#(touch x)", "/w/#{session_name}", "relative/dir"] {
+        let cmds = run(jump_plan(&background("deec2c5d"), cwd, &here, None));
+        assert!(
+            !cmds[0].iter().any(|a| a == "-c" || a == cwd),
+            "{cwd}: {cmds:?}"
+        );
+        assert!(cmds[0].ends_with(&["claude".into(), "attach".into(), "deec2c5d".into()]));
+    }
+}

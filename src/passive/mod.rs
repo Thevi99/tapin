@@ -24,6 +24,8 @@ pub struct Observation {
     pub label: Option<String>,
     /// The agent's terminal, so Enter can jump to it.
     pub tty: Option<String>,
+    /// A Claude background session's id, for `claude attach`.
+    pub background: Option<String>,
     /// The agent's transcript (Claude) or rollout (Codex) file.
     pub transcript: Option<std::path::PathBuf>,
 }
