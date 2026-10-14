@@ -382,3 +382,39 @@ fn read_only_explains_an_older_daemon_may_need_a_restart() {
     let text = format!("{:?}", t.backend().buffer());
     assert!(text.contains("restart"), "{text}");
 }
+
+fn passive_request() -> Row {
+    Row {
+        session_id: "bg".into(),
+        state: State::NeedsPermission,
+        agent: AgentKind::Claude,
+        project: "old-session".into(),
+        detail: "background: blocked".into(),
+        passive: true,
+        ..Default::default()
+    }
+}
+
+fn screen_hooks(rows: &[Row], hooks: &[AgentKind]) -> String {
+    let mut t = Terminal::new(TestBackend::new(120, 8)).unwrap();
+    let view = View {
+        rows,
+        selected: Some(0),
+        connected: true,
+        hooks,
+        ..Default::default()
+    };
+    t.draw(|f| tapin::tui::draw(f, &view)).unwrap();
+    format!("{:?}", t.backend().buffer())
+}
+
+#[test]
+fn with_hooks_installed_a_passive_row_isnt_told_to_run_init_again() {
+    let rows = [passive_request()];
+    let installed = screen_hooks(&rows, &[AgentKind::Claude]);
+    assert!(!installed.contains("run `tapin init`"), "{installed}");
+    assert!(installed.contains("started before"), "{installed}");
+    // Without hooks, init is still the advice.
+    let missing = screen_hooks(&rows, &[]);
+    assert!(missing.contains("tapin init"), "{missing}");
+}

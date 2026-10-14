@@ -585,6 +585,28 @@ fn for_each_target(mut step: impl FnMut(&Target) -> Result<()>) -> Result<()> {
     Ok(())
 }
 
+/// The agents whose settings already run tapin's hooks (read-only check).
+pub fn agents_with_hooks() -> Vec<AgentKind> {
+    let Ok(exe) = stable_exe() else {
+        return Vec::new();
+    };
+    let Ok(targets) = targets() else {
+        return Vec::new();
+    };
+    targets
+        .into_iter()
+        .filter(|t| t.detected)
+        .filter(|t| {
+            SettingsFile::load(&t.path).is_ok_and(|f| {
+                let mut v = f.value.clone();
+                // Installing into a copy changes nothing: they're already there.
+                install(&mut v, &hook_command(&exe, t.agent), t).is_ok_and(|changed| !changed)
+            })
+        })
+        .map(|t| t.agent)
+        .collect()
+}
+
 pub fn run_init(yes: bool) -> Result<()> {
     let exe = stable_exe()?;
     let result = for_each_target(|target| {

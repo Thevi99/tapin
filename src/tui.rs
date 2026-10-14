@@ -325,6 +325,7 @@ impl App {
             read_only: self.read_only,
             hidden: self.all.len() - self.rows.len(),
             hidden_waiting: waiting(&self.all) - waiting(&self.rows),
+            hooks: &[],
         }
     }
 }
@@ -343,6 +344,7 @@ fn event_loop(
     bell: bool,
     config_error: Option<String>,
 ) -> Result<()> {
+    let hooks = crate::setup::agents_with_hooks();
     let mut app = App::default();
     // Answers only once the daemon says this inbox may answer: a daemon from
     // before that check (v0.1) never says so, and must be restarted.
@@ -374,7 +376,13 @@ fn event_loop(
                 .as_ref()
                 .filter(|(_, at)| at.elapsed() < STATUS_FOR)
                 .map(|(m, _)| m.as_str());
-            draw(f, &app.view(connected, shown));
+            draw(
+                f,
+                &View {
+                    hooks: &hooks,
+                    ..app.view(connected, shown)
+                },
+            );
             if let Some(e) = &config_error {
                 let area = f.area();
                 let line = Rect::new(0, area.height.saturating_sub(1), area.width, 1);
@@ -606,6 +614,9 @@ pub struct View<'a> {
     pub grouped: bool,
     /// The daemon won't take answers from this inbox.
     pub read_only: bool,
+    /// Agents whose settings already run tapin's hooks (sessions started
+    /// before `tapin init` still show passively until restarted).
+    pub hooks: &'a [AgentKind],
     /// Rows the filter hides, and how many of those wait on the user.
     pub hidden: usize,
     pub hidden_waiting: usize,
@@ -680,7 +691,8 @@ pub fn draw(f: &mut Frame, view: &View) {
             if Some(i) == view.selected {
                 selected_item = Some(items.len());
             }
-            items.push(row_item(r, Some(i) == view.selected, body.width));
+            let hooked = view.hooks.contains(&r.agent);
+            items.push(row_item(r, Some(i) == view.selected, body.width, hooked));
         }
         let mut state = ListState::default().with_selected(selected_item);
         f.render_stateful_widget(
@@ -705,10 +717,12 @@ pub fn draw(f: &mut Frame, view: &View) {
         )
         .style(Style::new().fg(Color::Yellow)),
         // Nothing reports through hooks yet: say what installing them adds.
-        None if !rows.is_empty() && rows.iter().all(|r| r.passive) => Paragraph::new(
-            " passive mode (no hooks) · run `tapin init` to approve here and get live status",
-        )
-        .style(Style::new().fg(Color::Yellow)),
+        None if !rows.is_empty() && rows.iter().all(|r| r.passive) && view.hooks.is_empty() => {
+            Paragraph::new(
+                " passive mode (no hooks) · run `tapin init` to approve here and get live status",
+            )
+            .style(Style::new().fg(Color::Yellow))
+        }
         None => Paragraph::new(" ⏎ jump · ⇥ next · / filter · y/n answer · ? help · q quit").dim(),
     };
     f.render_widget(footer_text, footer);
@@ -868,7 +882,9 @@ fn context_span(context: Option<crate::context::Context>) -> Span<'static> {
     }
 }
 
-fn row_item(r: &Row, selected: bool, width: u16) -> ListItem<'static> {
+/// `hooked`: the row's agent already runs tapin's hooks, so a passive row is
+/// an older session, not a missing `tapin init`.
+fn row_item(r: &Row, selected: bool, width: u16, hooked: bool) -> ListItem<'static> {
     let (label, color) = match r.state {
         State::NeedsPermission => ("NEEDS", Color::Red),
         State::Done => ("DONE", Color::Green),
@@ -907,7 +923,10 @@ fn row_item(r: &Row, selected: bool, width: u16) -> ListItem<'static> {
         } else if r.request_id.is_some() {
             "      n deny (approve in the agent, where you can see all of it)"
         } else {
-            if r.passive {
+            if r.passive && hooked {
+                "      answer in the agent's terminal · this session started before tapin's \
+                 hooks were installed; new ones can be answered here"
+            } else if r.passive {
                 "      answer in the agent's terminal · run `tapin init` to answer here"
             } else {
                 "      answer in the agent's terminal (tapin's hook is no longer waiting)"

@@ -8,6 +8,9 @@
 - **Context column.** `ctx 64%` turns yellow from 80% and red from 95%. It's read from the agent's own transcript (Claude Code) or rollout (Codex). When the window size isn't known for sure, the row shows the size instead (`ctx 132k`).
 - **`hide_dirs` config** leaves sessions in chosen folders out of the inbox. By default it hides claude-mem's background observer.
 
+### Fixed
+- A session that started before `tapin init` no longer tells you to run `tapin init` (again). It now says the session predates the hooks and that new sessions can be answered from tapin.
+
 ### Security
 - **Only a real tapin inbox can approve** ([#12](https://github.com/Thevi99/tapin/issues/12)).
   - The daemon checks the process at the other end of the socket. It must be your user, running the same tapin file, with no agent anywhere above it. So an agent can't approve its own request with `nc`, a script, or a tapin it launched.
