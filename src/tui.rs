@@ -1,5 +1,6 @@
 //! `tapin`: the inbox TUI. A thin view over daemon snapshots.
 
+use crate::event::AgentKind;
 use crate::inbox::{Row, State};
 use crate::socket::{Request, Update};
 use anyhow::{Context, Result};
@@ -85,6 +86,9 @@ pub struct App {
     /// The request under the cursor, and since when; `y`/`n` wait for SETTLE.
     cursor_request: Option<u64>,
     cursor_since: Option<Instant>,
+    /// Requests already on screen before the latest snapshot, by session and
+    /// request id: only one that is new may pull the cursor.
+    known_needs: Vec<Need>,
 }
 
 /// What a key asks the event loop to do.
@@ -99,6 +103,7 @@ pub enum Action {
 impl App {
     /// A new snapshot from the daemon.
     pub fn update(&mut self, rows: Vec<Row>, now: Instant) {
+        self.known_needs = needs_of(&self.rows);
         self.rows = rows;
         self.reindex(now);
     }
@@ -108,7 +113,7 @@ impl App {
     }
 
     fn reindex(&mut self, now: Instant) {
-        self.index = reselect(&self.rows, self.selected.as_deref());
+        self.index = reselect(&self.rows, self.selected.as_deref(), &self.known_needs);
         if let Some(row) = self.index.and_then(|i| self.rows.get(i)) {
             self.selected = Some(row.session_id.clone());
         }
@@ -125,6 +130,8 @@ impl App {
     fn move_to(&mut self, index: usize, now: Instant) {
         if let Some(row) = self.rows.get(index) {
             self.selected = Some(row.session_id.clone());
+            // The user moved on purpose: no request already shown may pull them back.
+            self.known_needs = needs_of(&self.rows);
             self.reindex(now);
         }
     }
@@ -151,6 +158,18 @@ impl App {
                 Action::None
             }
             '\n' => row.map_or(Action::None, |r| Action::Jump(Box::new(r))),
+            '\t' => {
+                // The next session waiting on the user, after the cursor, wrapping.
+                let n = self.rows.len();
+                let start = self.index.map_or(0, |i| i + 1);
+                let next = (0..n)
+                    .map(|k| (start + k) % n)
+                    .find(|&i| matches!(self.rows[i].state, State::NeedsPermission | State::Done));
+                if let Some(i) = next {
+                    self.move_to(i, now);
+                }
+                Action::None
+            }
             'j' if !self.rows.is_empty() => {
                 let i = self.index.map_or(0, |i| (i + 1).min(self.rows.len() - 1));
                 self.move_to(i, now);
@@ -252,6 +271,7 @@ fn event_loop(
         let ch = match key.code {
             KeyCode::Char(c) => c,
             KeyCode::Enter => '\n',
+            KeyCode::Tab => '\t',
             KeyCode::Esc => '\x1b',
             KeyCode::Down => 'j',
             KeyCode::Up => 'k',
@@ -278,14 +298,17 @@ fn event_loop(
 
 /// The row to select after an update:
 /// - stay on a permission request the user is reading;
-/// - otherwise go to the longest-waiting request, so `y` works without hunting;
+/// - go to a session that newly needs a permission (not in `known_needs`), so
+///   `y` works without hunting; requests already on screen don't pull the
+///   cursor, or the user could never move off them;
 /// - otherwise follow the same session wherever it moved;
-/// - the top row if nothing was chosen yet, and nothing if the chosen session
-///   is gone, so the cursor never silently lands on an unrelated session.
+/// - if the chosen session is gone, offer the oldest request, else nothing, so
+///   the cursor never silently lands on an unrelated session;
+/// - the top row (or the oldest request) if nothing was chosen yet.
 ///
 /// Moving onto a request is safe because its full input is shown under the
 /// cursor and `y` is ignored for `SETTLE` after the row changes.
-pub fn reselect(rows: &[Row], selected: Option<&str>) -> Option<usize> {
+pub fn reselect(rows: &[Row], selected: Option<&str>, known_needs: &[Need]) -> Option<usize> {
     let current = selected.and_then(|id| rows.iter().position(|r| r.session_id == id));
     if let Some(i) = current {
         if rows[i].state == State::NeedsPermission {
@@ -293,13 +316,37 @@ pub fn reselect(rows: &[Row], selected: Option<&str>) -> Option<usize> {
         }
     }
     // Rows are sorted most urgent first, so the first request is the oldest one.
-    if let Some(i) = rows.iter().position(|r| r.state == State::NeedsPermission) {
+    let needs = |r: &Row| r.state == State::NeedsPermission;
+    if let Some(i) = rows
+        .iter()
+        .position(|r| needs(r) && !known_needs.contains(&need(r)))
+    {
         return Some(i);
     }
-    match selected {
-        Some(_) => current,
-        None => (!rows.is_empty()).then_some(0),
+    match (selected, current) {
+        (_, Some(i)) => Some(i),
+        (Some(_), None) => rows.iter().position(needs),
+        (None, None) => rows
+            .iter()
+            .position(needs)
+            .or((!rows.is_empty()).then_some(0)),
     }
+}
+
+/// A permission wait as the cursor rule sees it: the session and its request
+/// (none for a request tapin can't answer, e.g. one seen passively).
+pub type Need = (String, Option<u64>);
+
+fn need(r: &Row) -> Need {
+    (r.session_id.clone(), r.request_id)
+}
+
+/// The permission waits in `rows`.
+fn needs_of(rows: &[Row]) -> Vec<Need> {
+    rows.iter()
+        .filter(|r| r.state == State::NeedsPermission)
+        .map(need)
+        .collect()
 }
 
 /// How many requests in `now` weren't in `before` (to ring the bell once each).
@@ -402,7 +449,10 @@ pub fn draw(f: &mut Frame, view: &View) {
             " passive mode (no hooks) · run `tapin init` to approve here and get live status",
         )
         .style(Style::new().fg(Color::Yellow)),
-        None => Paragraph::new(" ⏎ jump · y/n answer · d details · ? help · q quit").dim(),
+        None => {
+            Paragraph::new(" ⏎ jump · ⇥ next waiting · y/n answer · d details · ? help · q quit")
+                .dim()
+        }
     };
     f.render_widget(footer_text, footer);
 
@@ -435,6 +485,10 @@ fn draw_overlay(f: &mut Frame, area: Rect, title: &str, lines: Vec<Line<'static>
 fn help_lines() -> Vec<Line<'static>> {
     let keys = [
         ("Enter", "jump to the selected agent's pane or window"),
+        (
+            "Tab",
+            "next agent waiting on you (a request or a finished turn)",
+        ),
         ("y", "approve the selected permission request"),
         ("n", "deny it"),
         ("d", "details: full message, input, where it runs"),
@@ -469,7 +523,10 @@ fn details_lines(r: &Row) -> Vec<Line<'static>> {
         (None, None, None) => "unknown".into(),
     };
     let mut lines = vec![
-        field("agent", format!("{} · {}", r.agent.name(), r.project)),
+        field(
+            "agent",
+            format!("{} {} · {}", glyph(r.agent), r.agent.name(), r.project),
+        ),
         field(
             "state",
             format!("{} for {}", r.state.label(), age(r.age_secs)),
@@ -512,6 +569,24 @@ fn visible_input(r: &Row, width: u16) -> Option<Vec<String>> {
     (lines.len() <= INPUT_LINES).then_some(lines)
 }
 
+/// Each agent's mark, as the agent's own CLI prints it: Claude Code's `✻`,
+/// Codex's `>_` prompt, Gemini CLI's `✦`. Plain single-width text, not logos.
+pub fn glyph(agent: AgentKind) -> &'static str {
+    match agent {
+        AgentKind::Claude => "✻",
+        AgentKind::Codex => ">_",
+        AgentKind::Gemini => "✦",
+    }
+}
+
+fn glyph_style(agent: AgentKind) -> Style {
+    match agent {
+        AgentKind::Claude => Style::new().fg(Color::Rgb(0xD9, 0x77, 0x57)),
+        AgentKind::Codex => Style::new().bold(),
+        AgentKind::Gemini => Style::new().fg(Color::Rgb(0x47, 0x96, 0xE4)),
+    }
+}
+
 fn row_item(r: &Row, selected: bool, width: u16) -> ListItem<'static> {
     let (label, color) = match r.state {
         State::NeedsPermission => ("NEEDS", Color::Red),
@@ -521,6 +596,7 @@ fn row_item(r: &Row, selected: bool, width: u16) -> ListItem<'static> {
     };
     let mut lines = vec![Line::from(vec![
         Span::styled(format!("{label:<6}"), Style::new().fg(color).bold()),
+        Span::styled(format!("{:>2} ", glyph(r.agent)), glyph_style(r.agent)),
         Span::styled(format!("{:<7}", r.agent.name()), Style::new().dim()),
         Span::styled(format!("{:<14} ", r.project), Style::new().bold()),
         Span::raw(r.detail.clone()),

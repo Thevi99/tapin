@@ -208,3 +208,38 @@ fn with_only_passive_sessions_the_footer_suggests_init() {
         "{hooked}"
     );
 }
+
+#[test]
+fn each_agent_has_its_own_glyph_and_the_columns_line_up() {
+    let rows: Vec<Row> = [
+        (AgentKind::Claude, "a"),
+        (AgentKind::Codex, "b"),
+        (AgentKind::Gemini, "c"),
+    ]
+    .into_iter()
+    .map(|(agent, id)| Row {
+        session_id: id.into(),
+        state: State::Working,
+        agent,
+        project: format!("proj-{id}"),
+        ..Default::default()
+    })
+    .collect();
+    let text = screen(&rows, 80, 8);
+    for badge in ["✻ claude", ">_ codex", "✦ gemini"] {
+        assert!(text.contains(badge), "missing {badge}:\n{text}");
+    }
+    // The project column starts at the same cell on every row.
+    let cols: Vec<usize> = text
+        .lines()
+        .filter_map(|l| l.find("proj-").map(|b| l[..b].chars().count()))
+        .collect();
+    assert_eq!(cols.len(), 3, "{text}");
+    assert!(cols.windows(2).all(|w| w[0] == w[1]), "{cols:?}\n{text}");
+}
+
+#[test]
+fn details_show_the_agent_glyph() {
+    let text = screen_with(&[done_row()], Overlay::Details, None, 70, 16);
+    assert!(text.contains("✻ claude"), "screen:\n{text}");
+}

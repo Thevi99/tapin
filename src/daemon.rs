@@ -220,6 +220,14 @@ fn handle(conn: UnixStream, state: &State, notifier: &Notifier) {
                 subscribed_as = Some(id);
                 broadcast(&mut shared);
             }
+            Ok(Request::Snapshot) => {
+                let rows = state.lock().unwrap().inbox.rows(now());
+                if let Ok(mut line) = serde_json::to_string(&Update::Rows { rows }) {
+                    line.push('\n');
+                    let _ = writer.set_write_timeout(Some(Duration::from_millis(200)));
+                    let _ = (&writer).write_all(line.as_bytes());
+                }
+            }
             Ok(Request::Decide { request_id, allow }) => {
                 let mut shared = state.lock().unwrap();
                 // Answers name the exact request: a stale or second answer finds nothing.

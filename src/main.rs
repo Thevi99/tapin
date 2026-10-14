@@ -39,6 +39,8 @@ enum Cmd {
     },
     /// Check the setup and explain why approvals might not show up.
     Doctor,
+    /// Print one line for a status bar, e.g. `NEEDS 1 · DONE 2` (nothing if all is quiet).
+    Status,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -75,6 +77,10 @@ fn main() -> anyhow::Result<()> {
         Some(Cmd::Init { yes }) => tapin::setup::run_init(yes),
         Some(Cmd::Uninstall { yes }) => tapin::setup::run_uninstall(yes),
         Some(Cmd::Doctor) => tapin::setup::run_doctor(&socket),
+        Some(Cmd::Status) => {
+            tapin::status::run(&socket);
+            Ok(())
+        }
         None => tapin::tui::run(&socket, cli.no_notify),
     }
 }

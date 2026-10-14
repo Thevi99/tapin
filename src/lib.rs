@@ -12,4 +12,5 @@ pub mod notify;
 pub mod passive;
 pub mod setup;
 pub mod socket;
+pub mod status;
 pub mod tui;

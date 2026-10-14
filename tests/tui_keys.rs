@@ -81,3 +81,102 @@ fn a_freshly_moved_cursor_ignores_y() {
     app.update(vec![needs("a", 7)], Instant::now());
     assert_eq!(app.key('y', WIDE, Instant::now()), Action::None);
 }
+
+fn with_state(id: &str, state: State) -> Row {
+    Row {
+        session_id: id.into(),
+        state,
+        ..Default::default()
+    }
+}
+
+fn jump_target(action: Action) -> Option<String> {
+    match action {
+        Action::Jump(r) => Some(r.session_id),
+        _ => None,
+    }
+}
+
+#[test]
+fn the_cursor_can_leave_a_pending_request_and_stays_where_it_was_moved() {
+    let rows = vec![needs("a", 7), with_state("b", State::Done)];
+    let mut app = settled(rows.clone());
+    app.key('j', WIDE, Instant::now());
+    // The daemon re-sends the same snapshot every second.
+    app.update(rows.clone(), Instant::now());
+    app.update(rows, Instant::now());
+    assert_eq!(
+        jump_target(app.key('\n', WIDE, Instant::now())),
+        Some("b".into())
+    );
+}
+
+#[test]
+fn a_new_request_still_pulls_the_cursor_to_it() {
+    let mut app = settled(vec![with_state("b", State::Working)]);
+    app.update(
+        vec![needs("a", 8), with_state("b", State::Working)],
+        Instant::now(),
+    );
+    assert_eq!(
+        jump_target(app.key('\n', WIDE, Instant::now())),
+        Some("a".into())
+    );
+}
+
+#[test]
+fn tab_goes_to_the_next_agent_waiting_on_you_and_wraps() {
+    let mut app = settled(vec![
+        needs("a", 7),
+        with_state("b", State::Done),
+        with_state("c", State::Working),
+        with_state("d", State::Done),
+    ]);
+    let mut visited = Vec::new();
+    for _ in 0..3 {
+        assert_eq!(app.key('\t', WIDE, Instant::now()), Action::None);
+        visited.push(jump_target(app.key('\n', WIDE, Instant::now())).unwrap());
+    }
+    assert_eq!(visited, ["b", "d", "a"]);
+}
+
+#[test]
+fn tab_with_nobody_waiting_stays_put() {
+    let mut app = settled(vec![
+        with_state("x", State::Working),
+        with_state("y", State::Idle),
+    ]);
+    app.key('\t', WIDE, Instant::now());
+    assert_eq!(
+        jump_target(app.key('\n', WIDE, Instant::now())),
+        Some("x".into())
+    );
+}
+
+#[test]
+fn y_right_after_tab_lands_on_a_request_is_ignored_until_it_settles() {
+    let mut app = settled(vec![with_state("b", State::Done), needs("a", 7)]);
+    // The cursor is pulled to "a"; move off it, then Tab back onto it.
+    app.key('k', WIDE, Instant::now());
+    app.key('\t', WIDE, Instant::now());
+    let now = Instant::now();
+    assert_eq!(app.key('y', WIDE, now), Action::None);
+    assert_eq!(
+        app.key('y', WIDE, now + Duration::from_secs(1)),
+        Action::Decide(7, true)
+    );
+}
+
+#[test]
+fn a_newer_request_from_the_same_session_pulls_the_cursor_too() {
+    let mut app = settled(vec![needs("a", 7), with_state("b", State::Done)]);
+    app.key('j', WIDE, Instant::now());
+    app.update(
+        vec![needs("a", 8), with_state("b", State::Done)],
+        Instant::now(),
+    );
+    assert_eq!(
+        jump_target(app.key('\n', WIDE, Instant::now())),
+        Some("a".into())
+    );
+}

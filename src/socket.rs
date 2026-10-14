@@ -58,6 +58,9 @@ pub enum Request {
     },
     /// Stream inbox snapshots to this connection.
     Subscribe,
+    /// Reply with one inbox snapshot and nothing more (status bars). Unlike
+    /// Subscribe it doesn't count as an open inbox someone could answer from.
+    Snapshot,
     /// Answer a session's pending permission request.
     Decide { request_id: u64, allow: bool },
 }

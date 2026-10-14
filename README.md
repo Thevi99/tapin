@@ -26,6 +26,8 @@ tapin                    # open the inbox
 - **`Enter` jumps to the agent.** It switches to its tmux pane (across sessions), its iTerm2 or Terminal.app tab, or its WezTerm pane.
 - **Desktop notifications** when an agent needs you or finishes. If you run agents in bypass mode, you still know the moment one is done.
 - **Zero-setup passive mode.** It reads Claude Code's `claude agents --json` and Codex's session files. It's read-only.
+- **See who's who at a glance.** Each row carries its agent's own mark: `✻` Claude, `>_` Codex, `✦` Gemini.
+- **In your status bar.** `tapin status` prints `NEEDS 1 · DONE 2` for tmux or your prompt (see below).
 - **One small binary.** Rust, no runtime, macOS and Linux.
 
 ## Agent support
@@ -63,12 +65,22 @@ Run `tapin doctor` to see what's set up. It also tells you why approvals might n
 | Key | Does |
 |---|---|
 | `Enter` | jump to the agent's pane or window |
+| `Tab` | next agent waiting on you (a request or a finished turn) |
 | `y` / `n` | approve / deny the selected request |
 | `d` | details: full input, last message, cwd, where it runs |
 | `?` | help |
 | `Esc` | close details or help |
 | `j` `k` / `↑` `↓` | move |
 | `q` | quit (the background daemon keeps running) |
+
+## Status bar
+
+`tapin status` prints one line, such as `NEEDS 1 · DONE 2`. It prints nothing when nothing is waiting or when tapin isn't running, and it never starts the daemon. For tmux:
+
+```tmux
+set -g status-right '#(tapin status) %H:%M'
+set -g status-interval 5
+```
 
 ## Config
 
@@ -113,3 +125,5 @@ The tests never touch your real agent configs. `.cargo/config.toml` points them 
 ## License
 
 MIT
+
+tapin is an independent project. It is not affiliated with or endorsed by Anthropic, OpenAI or Google. Claude, Codex and Gemini are trademarks of their owners.
