@@ -12,9 +12,15 @@ You run Claude Code in three projects and Codex in a fourth. Every few minutes o
 ## Quickstart
 
 ```bash
-cargo install --git https://github.com/Thevi99/tapin   # crates.io and Homebrew arrive with v0.1.0
-tapin init               # shows the exact change to each agent's config, asks first
-tapin                    # open the inbox
+brew install Thevi99/tap/tapin   # or: cargo install tapin
+tapin init                       # shows the exact change to each agent's config, asks first
+tapin                            # open the inbox
+```
+
+Or use the prebuilt binary for macOS or Linux, with no Rust needed:
+
+```bash
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/Thevi99/tapin/releases/latest/download/tapin-installer.sh | sh
 ```
 
 `tapin` works before `init` too. In passive mode it reads your sessions from outside, with no setup. `init` adds approvals from the inbox and instant updates.
