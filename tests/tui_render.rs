@@ -458,6 +458,7 @@ fn a_question_shows_its_options_and_how_to_answer() {
         request_id: Some(3),
         request_input: Some("Which color do you prefer?\n1. Red — Warm\n2. Blue — Calm".into()),
         choices: Some(vec!["Red".into(), "Blue".into()]),
+        question: true,
         ..Default::default()
     };
     let text = screen(std::slice::from_ref(&row), 90, 10);

@@ -54,6 +54,7 @@ struct Session {
     context: Option<crate::context::Context>,
     /// Option labels of the question awaiting an answer, if any.
     choices: Option<Vec<String>>,
+    question: bool,
 }
 
 /// One inbox line, ready to render.
@@ -79,6 +80,9 @@ pub struct Row {
     /// A question tapin can answer with a number: its option labels.
     #[serde(default)]
     pub choices: Option<Vec<String>>,
+    /// The pending request is Claude's AskUserQuestion (`y` never approves it).
+    #[serde(default)]
+    pub question: bool,
     /// How full the agent's context window is, when its transcript says.
     #[serde(default)]
     pub context: Option<crate::context::Context>,
@@ -142,9 +146,11 @@ impl Inbox {
             EventKind::PermissionRequested { input, .. } => input.clone(),
             _ => String::new(),
         };
-        let choices = match &ev.kind {
-            EventKind::PermissionRequested { choices, .. } => choices.clone(),
-            _ => None,
+        let (choices, question) = match &ev.kind {
+            EventKind::PermissionRequested {
+                choices, question, ..
+            } => (choices.clone(), *question),
+            _ => (None, false),
         };
         let mut last_message = None;
         let model = ev.model.clone();
@@ -216,6 +222,7 @@ impl Inbox {
                     transcript: None,
                     context: None,
                     choices: None,
+                    question: false,
                 });
                 self.sessions.last_mut().unwrap()
             }
@@ -228,6 +235,7 @@ impl Inbox {
         session.request = None;
         session.request_input = input;
         session.choices = choices;
+        session.question = question;
         if let Some(m) = last_message {
             session.last_message = m;
         }
@@ -338,6 +346,7 @@ impl Inbox {
                     transcript: o.transcript.clone(),
                     context: None,
                     choices: None,
+                    question: false,
                 }),
             }
         }
@@ -449,6 +458,7 @@ impl Inbox {
                 choices: (s.state == State::NeedsPermission)
                     .then(|| s.choices.clone())
                     .flatten(),
+                question: s.state == State::NeedsPermission && s.question,
             })
             .collect()
     }

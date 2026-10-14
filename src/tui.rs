@@ -360,7 +360,7 @@ impl App {
                 let choice = row
                     .choices
                     .as_ref()
-                    .and_then(|labels| labels.get(c_index(c_digit(c))))
+                    .and_then(|labels| labels.get((c as u8 - b'1') as usize))
                     .cloned();
                 match (row.request_id, choice) {
                     (Some(id), Some(label)) if able => Action::Answer(id, label),
@@ -672,16 +672,7 @@ const STATUS_FOR: Duration = Duration::from_secs(5);
 
 /// A Claude AskUserQuestion request (answered with a number, or in Claude).
 fn is_question(r: &Row) -> bool {
-    r.detail.starts_with("AskUserQuestion")
-}
-
-fn c_digit(c: char) -> u32 {
-    c.to_digit(10).unwrap_or(0)
-}
-
-/// Key `1` is the first option.
-fn c_index(d: u32) -> usize {
-    (d as usize).wrapping_sub(1)
+    r.question
 }
 
 /// How long a stop prompt waits for its `y`.

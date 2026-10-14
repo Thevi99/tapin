@@ -53,6 +53,8 @@ pub enum EventKind {
         input: String,
         /// Option labels when it's a question tapin can answer with a number.
         choices: Option<Vec<String>>,
+        /// It's Claude's AskUserQuestion: never approved without an answer.
+        question: bool,
     },
     ToolFinished,
     TurnDone {

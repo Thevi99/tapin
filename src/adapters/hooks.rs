@@ -11,10 +11,13 @@ pub fn wants_decision(raw: &Value) -> bool {
     raw.get("hook_event_name").and_then(Value::as_str) == Some("PermissionRequest")
 }
 
-/// Hook stdout for a decision. `None` (no output) leaves the agent's own prompt in charge.
-/// The hook's stdout for a decision on `payload`'s PermissionRequest.
+/// Hook stdout for a decision on `payload`'s PermissionRequest. `None` (no
+/// output) leaves the agent's own prompt in charge.
 pub fn decision_output(decision: Decision, payload: &Value) -> Option<String> {
     let decision = match decision {
+        // A question is never allowed without an answer (e.g. `y` from an
+        // older inbox): pass, so Claude's own question stays up.
+        Decision::Allow if is_question(payload) => return None,
         Decision::Allow => serde_json::json!({ "behavior": "allow" }),
         // AskUserQuestion: the original questions plus the chosen answer.
         // Only a label among that question's options is ever sent.
@@ -58,11 +61,13 @@ pub fn parse(raw: &Value, agent: AgentKind) -> Option<AgentEvent> {
                 summary,
                 input,
                 choices: single_question(raw).map(|(_, c)| c),
+                question: true,
             },
             None => EventKind::PermissionRequested {
                 summary: tool_summary(raw),
                 input: tool_input_text(raw),
                 choices: None,
+                question: is_question(raw),
             },
         },
         "PostToolUse" | "PostToolUseFailure" => EventKind::ToolFinished,
@@ -85,7 +90,6 @@ pub fn parse(raw: &Value, agent: AgentKind) -> Option<AgentEvent> {
     })
 }
 
-/// The whole tool input for review: the command verbatim, else pretty JSON.
 /// AskUserQuestion's questions, readable: `AskUserQuestion: <header>`, and
 /// each question followed by `1. label — description` lines.
 fn question_text(raw: &Value) -> Option<(String, String)> {
@@ -144,6 +148,12 @@ fn single_question(raw: &Value) -> Option<(String, Vec<String>)> {
         .flatten()
 }
 
+/// True for Claude's AskUserQuestion tool.
+pub fn is_question(raw: &Value) -> bool {
+    raw.get("tool_name").and_then(Value::as_str) == Some("AskUserQuestion")
+}
+
+/// The whole tool input for review: the command verbatim, else pretty JSON.
 fn tool_input_text(raw: &Value) -> String {
     let Some(input) = raw.get("tool_input") else {
         return String::new();
@@ -211,6 +221,7 @@ fn parse_gemini(raw: &Value, name: &str, agent: AgentKind) -> Option<AgentEvent>
                 summary: crate::inbox::one_line(&str_field(raw, "message")),
                 input: str_field(raw, "message"),
                 choices: None,
+                question: false,
             }
         }
         _ => return None,

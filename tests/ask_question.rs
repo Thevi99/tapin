@@ -40,6 +40,7 @@ fn multi_select_is_shown_but_not_answerable_here() {
     let row = &inbox.rows(1)[0];
     assert!(row.request_input.as_deref().unwrap().contains("2. Blue"));
     assert_eq!(row.choices, None);
+    assert!(row.question, "still a question: y must not approve it");
 }
 
 #[test]
@@ -84,7 +85,40 @@ fn answering_in_tapin_reaches_the_waiting_hook() {
             ["Which color do you prefer?"],
         "Red"
     );
-    let _ = Instant::now();
+}
+
+#[test]
+fn a_bare_allow_on_a_question_is_passed_not_approved() {
+    // E.g. a v0.2.0 inbox pressing y: never "allow" without an answer.
+    let d = start_daemon();
+    let mut tui = Client::connect(&d.socket);
+    let hook = spawn_hook(
+        &d.socket,
+        &payload("01-PermissionRequest.json").to_string(),
+        &[],
+    );
+    let rows = tui.wait_for(|r| pending_request(r).is_some());
+    tui.decide(pending_request(&rows).unwrap(), true);
+    let out = finish(hook, Duration::from_secs(3));
+    assert!(out.status.success());
+    assert!(
+        out.stdout.is_empty(),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+}
+
+#[test]
+fn deny_output_still_denies_a_question_and_old_daemons_count_as_protocol_2() {
+    let raw = payload("01-PermissionRequest.json");
+    let out = tapin::adapters::hooks::decision_output(tapin::socket::Decision::Deny, &raw).unwrap();
+    assert!(out.contains("\"deny\""));
+    let access: tapin::socket::Update =
+        serde_json::from_str(r#"{"type":"access","can_answer":true}"#).unwrap();
+    assert!(matches!(
+        access,
+        tapin::socket::Update::Access { protocol: 2, .. }
+    ));
 }
 
 mod keys {
@@ -100,6 +134,7 @@ mod keys {
             request_id: Some(7),
             request_input: Some("Which color?\n1. Red\n2. Blue".into()),
             choices: Some(vec!["Red".into(), "Blue".into()]),
+            question: true,
             ..Default::default()
         }
     }
