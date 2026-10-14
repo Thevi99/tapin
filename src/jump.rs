@@ -15,6 +15,8 @@ pub struct Here {
     pub tmux_socket: Option<String>,
     /// osascript is available.
     pub macos: bool,
+    /// The terminal app the TUI runs in (`$TERM_PROGRAM`).
+    pub term_program: Option<String>,
 }
 
 impl Here {
@@ -25,6 +27,7 @@ impl Here {
                 .and_then(|t| t.split(',').next().map(String::from))
                 .filter(|s| !s.is_empty()),
             macos: cfg!(target_os = "macos"),
+            term_program: std::env::var("TERM_PROGRAM").ok().filter(|s| !s.is_empty()),
         }
     }
 }
@@ -36,6 +39,26 @@ pub enum Jump {
     /// Nothing to run; tell the user this instead.
     Explain(String),
 }
+
+/// Open a new iTerm2 window running `claude attach <argv 1>`. The id is
+/// checked to be plain (letters, digits, -, _) before it gets here.
+const ITERM_ATTACH_SCRIPT: &str = r#"on run argv
+  tell application "iTerm"
+    activate
+    set w to (create window with default profile)
+    tell current session of w to write text "claude attach " & (item 1 of argv)
+  end tell
+  return "ok"
+end run"#;
+
+/// The same in Terminal.app.
+const TERMINAL_ATTACH_SCRIPT: &str = r#"on run argv
+  tell application "Terminal"
+    activate
+    do script "claude attach " & (item 1 of argv)
+  end tell
+  return "ok"
+end run"#;
 
 /// Focus an iTerm2 session by its tty (argv 1).
 const ITERM_SCRIPT: &str = r#"on run argv
@@ -103,9 +126,18 @@ pub fn jump_plan(loc: &Location, cwd: &str, here: &Here, client: Option<&str>) -
                 run.extend(cmd(&["claude", "attach", id]));
                 Jump::Run(vec![run])
             }
-            None => Jump::Explain(format!(
-                "It's a Claude background session. Open it with: claude attach {id}"
-            )),
+            // On macOS, a new window of the terminal the TUI runs in.
+            None => match (here.macos, here.term_program.as_deref()) {
+                (true, Some("iTerm.app")) => {
+                    Jump::Run(vec![cmd(&["osascript", "-e", ITERM_ATTACH_SCRIPT, id])])
+                }
+                (true, Some("Apple_Terminal")) => {
+                    Jump::Run(vec![cmd(&["osascript", "-e", TERMINAL_ATTACH_SCRIPT, id])])
+                }
+                _ => Jump::Explain(format!(
+                    "It's a Claude background session. Open it with: claude attach {id}"
+                )),
+            },
         };
     }
     if let (Some(sock), Some(pane)) = (&loc.tmux_socket, &loc.tmux_pane) {

@@ -176,6 +176,7 @@ fn a_claude_background_session_opens_with_claude_attach_in_a_new_tmux_window() {
     let here = Here {
         tmux_socket: Some("/tmp/tmux-501/default".into()),
         macos: true,
+        ..Default::default()
     };
     let cmds = run(jump_plan(&background("deec2c5d"), "/w/api", &here, None));
     assert_eq!(
@@ -199,6 +200,7 @@ fn outside_tmux_it_says_how_to_open_a_background_session() {
     let here = Here {
         tmux_socket: None,
         macos: true,
+        ..Default::default()
     };
     let msg = explain(jump_plan(&background("deec2c5d"), "/w/api", &here, None));
     assert!(msg.contains("claude attach deec2c5d"), "{msg}");
@@ -209,6 +211,7 @@ fn an_odd_background_id_is_never_passed_to_a_command() {
     let here = Here {
         tmux_socket: Some("/tmp/tmux-501/default".into()),
         macos: true,
+        ..Default::default()
     };
     for id in ["-x", "a b", "a;rm", ""] {
         let j = jump_plan(&background(id), "/w/api", &here, None);
@@ -222,6 +225,7 @@ fn a_folder_tmux_would_expand_is_never_passed_to_it() {
     let here = Here {
         tmux_socket: Some("/tmp/tmux-501/default".into()),
         macos: true,
+        ..Default::default()
     };
     for cwd in ["/w/#(touch x)", "/w/#{session_name}", "relative/dir"] {
         let cmds = run(jump_plan(&background("deec2c5d"), cwd, &here, None));
@@ -231,4 +235,45 @@ fn a_folder_tmux_would_expand_is_never_passed_to_it() {
         );
         assert!(cmds[0].ends_with(&["claude".into(), "attach".into(), "deec2c5d".into()]));
     }
+}
+
+fn mac_terminal(program: &str) -> Here {
+    Here {
+        tmux_socket: None,
+        macos: true,
+        term_program: Some(program.into()),
+    }
+}
+
+#[test]
+fn outside_tmux_iterm_and_terminal_open_a_window_running_claude_attach() {
+    for program in ["iTerm.app", "Apple_Terminal"] {
+        let cmds = run(jump_plan(
+            &background("deec2c5d"),
+            "/w/api",
+            &mac_terminal(program),
+            None,
+        ));
+        assert_eq!(cmds.len(), 1);
+        let argv = &cmds[0];
+        assert_eq!(argv[0], "osascript", "{program}");
+        // The id is an argument to the script, never part of its text.
+        assert_eq!(
+            argv.last().map(String::as_str),
+            Some("deec2c5d"),
+            "{program}"
+        );
+        assert!(!argv[2].contains("deec2c5d"), "{program}");
+    }
+}
+
+#[test]
+fn another_terminal_outside_tmux_is_told_the_command() {
+    let msg = explain(jump_plan(
+        &background("deec2c5d"),
+        "/w/api",
+        &mac_terminal("WezTerm"),
+        None,
+    ));
+    assert!(msg.contains("claude attach deec2c5d"), "{msg}");
 }
