@@ -76,6 +76,8 @@ Run `tapin doctor` to see what's set up. It also tells you why approvals might n
 | `/` | filter by project, agent, detail or folder (`Esc` clears) |
 | `g` | group rows by folder |
 | `y` / `n` | approve / deny the selected request |
+| `1`-`9` | answer Claude's question with that option |
+| `x` | stop a Claude background session (asks first) |
 | `d` | details: full input, last message, cwd, where it runs |
 | `?` | help |
 | `Esc` | close details or help |

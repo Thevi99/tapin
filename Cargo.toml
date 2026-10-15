@@ -1,6 +1,6 @@
 [package]
 name = "tapin"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 description = "An inbox for your AI coding agents. Approve, jump, done."
 license = "MIT"
