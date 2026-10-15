@@ -57,7 +57,7 @@ Make a busy inbox (10+ sessions) easy to search and scan, show how full each age
 - An unverified subscriber still gets snapshots (read-only), but does not count as an inbox that can answer. This affects the Codex "nobody to answer" rule. Its TUI shows "read-only: approvals are disabled here" instead of `y/n`.
 - Platform calls via `libc`:
   - Linux: `SO_PEERCRED`, `/proc/<pid>/exe`, `/proc/<pid>/stat`.
-  - macOS: `LOCAL_PEERPID`, `proc_pidpath`, `proc_pidinfo(PROC_PIDTBSDINFO)`.
+  - macOS: `LOCAL_PEERPID`, `proc_pidpath`, `proc_pidinfo(PROC_PIDT_SHORTBSDINFO)` (the full form can't read root's `login`).
 - Test seam: in debug builds only (`cfg(debug_assertions)`), `TAPIN_TRUST_PEER_EXE=<path>` lets the daemon treat that executable as tapin, so the headless test client can approve. Release builds ignore it.
 - Residual risk, documented in CLAUDE.md and the README: a same-user agent that detaches (double-fork/`setsid`) and drives a real `tapin` inside a pty can still approve, as can one that ptraces the daemon or edits settings. This closes the cheap `nc -U`/script self-approval.
 
