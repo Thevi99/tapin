@@ -4,6 +4,7 @@
 
 [![CI](https://github.com/Thevi99/tapin/actions/workflows/ci.yml/badge.svg)](https://github.com/Thevi99/tapin/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Built With Ratatui](https://ratatui.rs/built-with-ratatui/badge.svg)](https://ratatui.rs/)
 
 ![tapin: y approves a command, 1 answers another agent's question, Enter jumps to the finished agent's pane](demo/tapin.gif)
 
