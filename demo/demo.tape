@@ -32,18 +32,18 @@ Backspace 5
 Type `touch $S.go; $T new-session -s inbox -x 120 -y 24 "$TAPIN_BIN --socket $S"`
 Enter
 Show
-# Sessions appear; one finishes; then Claude asks to run a command.
+# Sessions appear; one finishes; Claude asks to run a command, then another asks a question.
 Sleep 8.5s
 # The cursor sits on the request with the full command shown: approve it.
 Type "y"
-Sleep 4.5s
+Sleep 3.5s
 
-# Details of the finished session.
-Type "d"
+# Another Claude asks a question: answer it with a number key.
+Type "1"
 Sleep 2.5s
-Escape
-Sleep 700ms
 
-# Jump straight to that agent's pane.
+# Jump straight to the agent that just finished.
+Type "k"
+Sleep 1s
 Enter
 Sleep 3.5s

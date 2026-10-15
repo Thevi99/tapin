@@ -28,6 +28,7 @@ ev codex  $B /home/you/work/landing-page SessionStart
 ev claude $C /home/you/work/docs-site SessionStart
 ev claude $A /home/you/work/shop-api UserPromptSubmit ',"prompt":"fix the flaky checkout test"'
 ev codex  $B /home/you/work/landing-page UserPromptSubmit ',"prompt":"tighten the hero copy"'
+ev claude $C /home/you/work/docs-site UserPromptSubmit ',"prompt":"write the API reference"'
 ev claude $A /home/you/work/shop-api PreToolUse ',"tool_name":"Edit","tool_input":{"file_path":"src/checkout_test.go"}'
 sleep 2
 ev codex  $B /home/you/work/landing-page Stop ',"last_assistant_message":"Hero copy is shorter and the CTA now says Start free."'
@@ -35,6 +36,10 @@ sleep 2
 # Claude asks to run a command: this hook waits for y/n in the inbox.
 ev claude $A /home/you/work/shop-api PermissionRequest ',"tool_name":"Bash","tool_input":{"command":"go test ./checkout/... -count=5","description":"Run the checkout tests 5 times"}'
 ev claude $A /home/you/work/shop-api PostToolUse ',"tool_name":"Bash","tool_input":{"command":"go test ./checkout/... -count=5"}'
-sleep 3
+sleep 1
+# Another Claude asks a question: this hook waits for a number key.
+ev claude $C /home/you/work/docs-site PermissionRequest ',"tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Where should the new API reference live?","header":"Docs layout","multiSelect":false,"options":[{"label":"One page per endpoint","description":"Easy to link, more files"},{"label":"A single long page","description":"Easy to search, one file"}]}]}'
+ev claude $C /home/you/work/docs-site PostToolUse ',"tool_name":"AskUserQuestion","tool_input":{}'
+sleep 1
 ev claude $A /home/you/work/shop-api Stop ',"last_assistant_message":"Fixed: the test raced on the cart clock. 5/5 runs pass."'
 sleep 60

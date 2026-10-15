@@ -5,7 +5,7 @@
 [![CI](https://github.com/Thevi99/tapin/actions/workflows/ci.yml/badge.svg)](https://github.com/Thevi99/tapin/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-![tapin: a request arrives, y approves it, the agent finishes, Enter jumps to its pane](demo/tapin.gif)
+![tapin: y approves a command, 1 answers another agent's question, Enter jumps to the finished agent's pane](demo/tapin.gif)
 
 You run Claude Code in three projects and Codex in a fourth. Every few minutes one of them stops and waits for you, but you can't see which one without alt-tabbing through every pane. tapin shows every session in one terminal inbox and puts the ones waiting on you at the top.
 
@@ -29,7 +29,8 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/Thevi99/tapin/releases/
 
 - **Sorted by what needs you.** Permission requests come first, then finished turns, then busy agents, then idle ones. The cursor goes to the oldest request.
 - **`y` / `n` to approve or deny**, with the full command shown under the row. Nothing you haven't seen in full can be approved: input too long to show is deny-only.
-- **`Enter` jumps to the agent.** It switches to its tmux pane (across sessions), its iTerm2 or Terminal.app tab, or its WezTerm pane.
+- **Answer Claude's questions with a number key.** When Claude Code asks you to choose, the options are listed under the row; `1`-`9` picks one.
+- **`Enter` jumps to the agent.** It switches to its tmux pane (across sessions), its iTerm2 or Terminal.app tab, or its WezTerm pane. A Claude background session (`claude agents`) opens with `claude attach`, and `x` stops one.
 - **Desktop notifications** when an agent needs you or finishes. If you run agents in bypass mode, you still know the moment one is done.
 - **Zero-setup passive mode.** It reads Claude Code's `claude agents --json` and Codex's session files. It's read-only.
 - **See who's who at a glance.** Each row carries its agent's own mark: `✻` Claude, `>_` Codex, `✦` Gemini.
