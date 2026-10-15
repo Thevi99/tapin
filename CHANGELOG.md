@@ -9,10 +9,10 @@
 - **Answer Claude's questions from tapin.** When Claude Code asks with its question tool, the row shows the question and numbered options. For a single question with one answer, press `1`-`N` to answer (the same guards as `y` apply). Other questions are shown, and you answer them in Claude's window. This relies on behaviour verified on Claude Code 2.1.299 that isn't documented for permission hooks yet.
 
 ### Fixed
-- `y` (from any inbox, including 0.2.0) never approves a question without an answer: the hook leaves Claude's own question up instead.
+- A plain `y` no longer approves a question without an answer: 0.2.1 hooks leave Claude's own question up instead. This also covers a `y` sent by an older inbox. It doesn't cover requests a 0.2.0 hook was already waiting on, which is why you restart below.
 
 ### Upgrading
-- Restart the daemon once (`pkill -f "tapin daemon"`). Answering questions needs the new daemon. Until then, the number keys do nothing.
+- After upgrading, quit any open inbox and restart the daemon (`pkill -f "tapin daemon"`), then run `tapin` again. This releases requests that hooks from the old version are still waiting on, and number-key answers need the new daemon.
 
 ## 0.2.0 - 2026-10-14
 
